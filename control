@@ -1,9 +1,9 @@
-Package: com.dydebugkit.debug
+Package: com.ygxmm.dydebugkit
 Name: DYDebugKit
 Version: 1.0.0
 Architecture: iphoneos-arm
-Description: Standalone generic iOS debugging inspector and export toolkit.
+Description: DYDebugKit
 Maintainer: DYDebugKit
 Author: DYDebugKit
-Section: Development
+Section: Tweaks
 Depends: mobilesubstrate
