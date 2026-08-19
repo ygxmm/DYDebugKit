@@ -7,63 +7,66 @@ ARCHS = arm64 arm64e
 
 INSTALL_TARGET_PROCESSES = Aweme
 
-#
-# Read package version from control
-#
+TWEAK_NAME = DYDebugKit
 
 DY_VERSION := $(shell awk -F': *' '$$1 == "Version" { print $$2; exit }' control)
+
+DYDEBUGKIT_PACKAGE_SCHEME ?= $(if $(THEOS_PACKAGE_SCHEME),$(THEOS_PACKAGE_SCHEME),rootful)
 
 ifeq ($(strip $(DY_VERSION)),)
 $(error Missing Version in control)
 endif
 
 
-#
-# Package scheme
-#
+# ============================================================
+# Package Scheme
+# ============================================================
 
-DY_PACKAGE_SCHEME ?= $(if $(THEOS_PACKAGE_SCHEME),$(THEOS_PACKAGE_SCHEME),rootful)
-
-
-ifeq ($(DY_PACKAGE_SCHEME),rootful)
+ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),rootful)
 
 unexport THEOS_PACKAGE_SCHEME
-DY_PACKAGE_SUFFIX = arm-rootful
 
-else ifeq ($(DY_PACKAGE_SCHEME),rootless)
+DYDEBUGKIT_PACKAGE_SUFFIX = arm-rootful
+
+else ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),rootless)
 
 export THEOS_PACKAGE_SCHEME = rootless
-DY_PACKAGE_SUFFIX = arm64-rootless
 
-else ifeq ($(DY_PACKAGE_SCHEME),roothide)
+DYDEBUGKIT_PACKAGE_SUFFIX = arm64-rootless
+
+else ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),roothide)
 
 export THEOS_PACKAGE_SCHEME = roothide
-DY_PACKAGE_SUFFIX = arm64e-roothide
+
+DYDEBUGKIT_PACKAGE_SUFFIX = arm64e-roothide
 
 else
 
-$(error Unsupported DY_PACKAGE_SCHEME: $(DY_PACKAGE_SCHEME))
+$(error Unsupported DYDEBUGKIT_PACKAGE_SCHEME: $(DYDEBUGKIT_PACKAGE_SCHEME))
 
 endif
 
 
-#
+# ============================================================
 # Theos
-#
+# ============================================================
 
 include $(THEOS)/makefiles/common.mk
 
 
-#
-# Tweak
-#
-
-TWEAK_NAME = DYDebugKit
+# ============================================================
+# Source
+# ============================================================
 
 DYDebugKit_FILES = \
 	Entry.xm \
 	DYDebugCapture.m \
 	DYDebugExport.m
+
+
+# ============================================================
+# Compiler
+# ============================================================
 
 DYDebugKit_CFLAGS = \
 	-fobjc-arc \
@@ -79,95 +82,90 @@ DYDebugKit_FRAMEWORKS = \
 	CoreGraphics
 
 
-#
-# Logos / warnings
-#
+# ============================================================
+# Logos
+# ============================================================
+
+DYDebugKit_LOGOS_DEFAULT_GENERATOR = internal
 
 export THEOS_STRICT_LOGOS = 0
 export ERROR_ON_WARNINGS = 0
 export LOGOS_DEFAULT_GENERATOR = internal
 
 
-#
-# Build
-#
+# ============================================================
+# Tweak
+# ============================================================
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 
-#
+# ============================================================
 # Clean
-#
+# ============================================================
 
 clean::
-	@rm -rf .theos
-	@rm -rf packages
+	@rm -rf .theos packages
 
 
-#
+# ============================================================
 # Rootful
-#
+# ============================================================
 
 package-rootful::
 	@echo "================================"
-	@echo "Building DYDebugKit - ROOTFUL"
+	@echo "Building DYDebugKit Rootful"
 	@echo "================================"
-
 	@rm -rf .theos
-
 	@$(MAKE) all package \
-		DY_PACKAGE_SCHEME=rootful \
+		DYDEBUGKIT_PACKAGE_SCHEME=rootful \
 		FINALPACKAGE=1
 
 
-#
+# ============================================================
 # Rootless
-#
+# ============================================================
 
 package-rootless::
 	@echo "================================"
-	@echo "Building DYDebugKit - ROOTLESS"
+	@echo "Building DYDebugKit Rootless"
 	@echo "================================"
-
 	@rm -rf .theos
-
 	@$(MAKE) all package \
-		DY_PACKAGE_SCHEME=rootless \
+		DYDEBUGKIT_PACKAGE_SCHEME=rootless \
 		FINALPACKAGE=1
 
 
-#
-# Roothide
-#
+# ============================================================
+# RootHide
+# ============================================================
 
 package-roothide::
 	@echo "================================"
-	@echo "Building DYDebugKit - ROOTHiDE"
+	@echo "Building DYDebugKit RootHide"
 	@echo "================================"
 
 	@if [ -d "$(THEOS_VENDOR_MODULE_PATH)/roothide" ] || \
 	    [ -d "$(THEOS_MODULE_PATH)/roothide" ]; then \
 		rm -rf .theos; \
 		$(MAKE) all package \
-			DY_PACKAGE_SCHEME=roothide \
+			DYDEBUGKIT_PACKAGE_SCHEME=roothide \
 			FINALPACKAGE=1; \
-	elif [ "$$GITHUB_ACTIONS" = "true" ]; then \
-		echo "error: roothide Theos package scheme is required in CI."; \
-		exit 1; \
 	else \
-		echo "warning: roothide Theos package scheme not found; skipped roothide package."; \
+		echo ""; \
+		echo "ERROR: RootHide Theos package scheme not found."; \
+		echo ""; \
+		echo "Install/use a Theos tree containing the roothide scheme."; \
+		echo ""; \
+		exit 1; \
 	fi
 
 
-#
+# ============================================================
 # Build all three packages
-#
+# ============================================================
 
 all-packages::
-	@echo "================================"
-	@echo "Building ALL package schemes"
-	@echo "================================"
-
 	@rm -rf packages
 	@mkdir -p packages
 
@@ -178,31 +176,36 @@ all-packages::
 	@$(MAKE) package-roothide FINALPACKAGE=1
 
 
-#
-# Package staging
-#
+# ============================================================
+# Scheme staging
+# ============================================================
 
 before-package::
+
 ifneq ($(THEOS_PACKAGE_INSTALL_PREFIX),)
+
 	@mkdir -p "$(_THEOS_SCHEME_STAGE)"
+
 endif
 
 
-#
-# Rename generated package
-#
+# ============================================================
+# Rename package
+# ============================================================
 
 after-package::
+
 	@mkdir -p packages
 
 	@DEB=$$(cat .theos/last_package 2>/dev/null || true); \
-	OUT="packages/DYDebugKit_$(DY_VERSION)_$(DY_PACKAGE_SUFFIX).deb"; \
+	OUT="packages/DYDebugKit_$(DY_VERSION)_$(DYDEBUGKIT_PACKAGE_SUFFIX).deb"; \
 	if [ -n "$$DEB" ] && [ -f "$$DEB" ]; then \
 		mv -f "$$DEB" "$$OUT"; \
 	fi
 
-	@echo
+	@echo ""
 	@echo "================================"
 	@echo "Package generated"
 	@echo "================================"
-	@echo "packages/DYDebugKit_$(DY_VERSION)_$(DY_PACKAGE_SUFFIX).deb"
+	@echo "packages/DYDebugKit_$(DY_VERSION)_$(DYDEBUGKIT_PACKAGE_SUFFIX).deb"
+	@echo ""
