@@ -15,27 +15,115 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
+        shell: bash
         run: |
-          brew install make ldid
+          set -e
+
+          brew install ldid dpkg
 
       - name: Install Theos
+        shell: bash
         run: |
-          git clone --depth=1 https://github.com/theos/theos.git "$HOME/theos"
-          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          set -e
 
-      - name: Install iOS SDK
+          export THEOS="$HOME/theos"
+
+          git clone --depth=1 \
+            https://github.com/theos/theos.git \
+            "$THEOS"
+
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          echo "$THEOS/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare Theos
+        shell: bash
         run: |
-          "$HOME/theos/bin/bootstrap.sh" || true
+          set -e
+
+          export THEOS="$HOME/theos"
+
+          echo "THEOS=$THEOS"
+
+          if [ ! -d "$THEOS" ]; then
+            echo "Theos directory not found"
+            exit 1
+          fi
+
+          echo "Checking Theos..."
+
+          "$THEOS/bin/bootstrap.sh"
+
+      - name: Check packaging tools
+        shell: bash
+        run: |
+          set -e
+
+          export THEOS="$HOME/theos"
+
+          echo "Searching for dm.pl..."
+
+          DM_PL="$(find "$THEOS" -name "dm.pl" -type f | head -n 1)"
+
+          if [ -z "$DM_PL" ]; then
+            echo "ERROR: dm.pl was not found."
+            echo
+            echo "Theos directory:"
+            find "$THEOS" -maxdepth 3 -type f | sort | head -200
+            exit 1
+          fi
+
+          echo "Found:"
+          echo "$DM_PL"
+
+          chmod +x "$DM_PL"
+
+      - name: Check project
+        shell: bash
+        run: |
+          set -e
+
+          echo "Project files:"
+          find . -maxdepth 2 -type f | sort
+
+          echo
+          echo "Makefile:"
+          test -f Makefile
+
+          echo
+          echo "control:"
+          test -f control
+
+          echo
+          echo "Filter plist:"
+          test -f DYDebugKit.plist
 
       - name: Build package
+        shell: bash
         run: |
+          set -e
+
           export THEOS="$HOME/theos"
+          export PATH="$THEOS/bin:$PATH"
+
+          echo "THEOS=$THEOS"
+          echo "PATH=$PATH"
+
           make clean
           make package FINALPACKAGE=1
 
       - name: Find package
+        shell: bash
         run: |
-          find packages -type f -name "*.deb" -print
+          set -e
+
+          echo "Generated packages:"
+
+          find packages \
+            -type f \
+            -name "*.deb" \
+            -print
+
+          test -n "$(find packages -type f -name '*.deb' -print -quit)"
 
       - name: Upload DEB artifact
         uses: actions/upload-artifact@v4
