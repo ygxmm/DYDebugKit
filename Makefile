@@ -9,7 +9,8 @@ DYDebugKit_FILES = Entry.xm \
                    DYDebugCapture.m \
                    DYDebugExport.m
 
-DYDebugKit_CFLAGS = -fobjc-arc -Wall -Wextra
+DYDebugKit_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter
+
 DYDebugKit_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 
 include $(THEOS_MAKE_PATH)/tweak.mk
