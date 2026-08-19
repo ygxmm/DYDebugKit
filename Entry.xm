@@ -23,17 +23,14 @@ static DYDebugOverlayWindow *gWindow = nil;
 
 /*
  * 使用 weakObjectsHashTable 保存已经安装过的 Window。
- *
- * 原来的实现：
- *
- *     static UILongPressGestureRecognizer *gActivator;
- *     static __weak UIWindow *gAttachedWindow;
- *
- * 只能维护一个 Window。
- *
- * 多 Scene / 多 Window 环境下容易导致手势安装到错误 Window。
+ * 多 Scene / 多 Window 环境下避免重复添加手势。
  */
 static NSHashTable<UIWindow *> *gAttachedWindows = nil;
+
+/*
+ * 手势代理，允许与其他手势同时识别。
+ */
+static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
 #pragma mark - Overlay Controller
 
@@ -179,8 +176,10 @@ static void DYShowOverlay(void) {
         UIWindowScene *scene = DYDebugForegroundWindowScene();
 
         if (scene != nil) {
+            NSLog(@"[DYDebugKit] Found scene: %@", scene);
             gWindow = [[DYDebugOverlayWindow alloc] initWithWindowScene:scene];
         } else {
+            NSLog(@"[DYDebugKit] No scene found, using mainScreen bounds");
             gWindow = [[DYDebugOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
         }
 
@@ -189,7 +188,6 @@ static void DYShowOverlay(void) {
 
         /*
          * 只让浮窗自身可见。
-         *
          * pointInside: 已经限制了实际触摸区域，
          * 所以不会覆盖整个 App 的触摸。
          */
@@ -200,6 +198,20 @@ static void DYShowOverlay(void) {
         NSLog(@"[DYDebugKit] Overlay shown");
     });
 }
+
+#pragma mark - Gesture Delegate
+
+@interface DYGestureDelegate : NSObject <UIGestureRecognizerDelegate>
+@end
+
+@implementation DYGestureDelegate
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
+shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
+}
+
+@end
 
 #pragma mark - Activator
 
@@ -258,12 +270,9 @@ static void DYInstallActivatorOnWindow(UIWindow *window) {
     }
 
     /*
-     * 只处理普通应用 Window。
-     *
-     * 避免给系统 Alert / 键盘 / 其他特殊 Window
-     * 重复添加手势。
+     * 放宽限制：只排除明显高于 normal 的系统窗口（如键盘、Alert）。
      */
-    if (window.windowLevel != UIWindowLevelNormal) {
+    if (window.windowLevel > UIWindowLevelNormal + 1.0) {
         return;
     }
 
@@ -278,10 +287,9 @@ static void DYInstallActivatorOnWindow(UIWindow *window) {
 
     /*
      * 双指长按。
-     *
-     * 2 秒用于测试，比原来的 3 秒更容易确认。
+     * 1.5 秒更易触发。
      */
-    gesture.minimumPressDuration = 2.0;
+    gesture.minimumPressDuration = 1.5;
     gesture.numberOfTouchesRequired = 2;
     gesture.numberOfTapsRequired = 0;
 
@@ -293,10 +301,12 @@ static void DYInstallActivatorOnWindow(UIWindow *window) {
     gesture.delaysTouchesEnded = NO;
 
     /*
-     * 如果目标 App 自己有复杂手势，
-     * 尽可能不要阻止它们。
+     * 允许与其他手势同时识别，避免冲突。
      */
-    gesture.delegate = nil;
+    if (gGestureDelegate == nil) {
+        gGestureDelegate = [DYGestureDelegate new];
+    }
+    gesture.delegate = gGestureDelegate;
 
     [window addGestureRecognizer:gesture];
 
@@ -320,7 +330,6 @@ static void DYAttachToCurrentWindows(void) {
 
         /*
          * iOS 13+
-         *
          * 一个 App 可以存在多个 UIWindowScene。
          */
         if (@available(iOS 13.0, *)) {
@@ -432,7 +441,6 @@ static void DYStartWindowMonitor(void) {
 
             /*
              * Scene 连接。
-             *
              * 使用字符串字面量以避免旧 SDK 缺少常量声明。
              */
             [[NSNotificationCenter defaultCenter]
@@ -459,5 +467,11 @@ static void DYStartWindowMonitor(void) {
          * 处理某些 App 延迟创建 Window 的情况。
          */
         DYStartWindowMonitor();
+
+        /*
+         * 临时测试：启动后立即显示浮窗。
+         * 测试完成后请删除此行，恢复双指长按触发。
+         */
+        DYShowOverlay();
     });
 }
