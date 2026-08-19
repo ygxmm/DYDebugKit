@@ -40,39 +40,21 @@ static NSHashTable<UIWindow *> *gAttachedWindows = nil;
 @implementation DYDebugOverlayController
 
 - (void)loadView {
-
     self.view = [UIView new];
-
-    self.view.backgroundColor =
-        UIColor.clearColor;
+    self.view.backgroundColor = UIColor.clearColor;
 }
 
 - (void)viewDidLoad {
-
     [super viewDidLoad];
 
-    self.button =
-        [UIButton buttonWithType:UIButtonTypeSystem];
+    self.button = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.button.frame = CGRectMake(0, 0, 48.0, 48.0);
+    self.button.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.78];
+    self.button.tintColor = UIColor.whiteColor;
+    self.button.layer.cornerRadius = 24.0;
+    self.button.layer.masksToBounds = YES;
 
-    self.button.frame =
-        CGRectMake(0, 0, 48.0, 48.0);
-
-    self.button.backgroundColor =
-        [UIColor colorWithWhite:0.0
-                          alpha:0.78];
-
-    self.button.tintColor =
-        UIColor.whiteColor;
-
-    self.button.layer.cornerRadius =
-        24.0;
-
-    self.button.layer.masksToBounds =
-        YES;
-
-    [self.button setTitle:@"⌘"
-                 forState:UIControlStateNormal];
-
+    [self.button setTitle:@"⌘" forState:UIControlStateNormal];
     [self.button addTarget:self
                     action:@selector(debugTapped)
           forControlEvents:UIControlEventTouchUpInside];
@@ -81,112 +63,69 @@ static NSHashTable<UIWindow *> *gAttachedWindows = nil;
 }
 
 - (void)viewDidLayoutSubviews {
-
     [super viewDidLayoutSubviews];
 
-    self.button.center =
-        CGPointMake(
-            self.view.bounds.size.width - 38.0,
-            self.view.safeAreaInsets.top + 38.0
-        );
+    self.button.center = CGPointMake(
+        self.view.bounds.size.width - 38.0,
+        self.view.safeAreaInsets.top + 38.0
+    );
 }
 
 - (void)debugTapped {
-
-    UIWindow *target =
-        DYDebugTargetWindow();
+    UIWindow *target = DYDebugTargetWindow();
 
     if (target == nil) {
-
         UIAlertController *alert =
-            [UIAlertController
-                alertControllerWithTitle:@"DYDebugKit"
-                                   message:@"找不到当前窗口"
-                            preferredStyle:UIAlertControllerStyleAlert];
+            [UIAlertController alertControllerWithTitle:@"DYDebugKit"
+                                               message:@"找不到当前窗口"
+                                        preferredStyle:UIAlertControllerStyleAlert];
 
-        [alert addAction:
-            [UIAlertAction
-                actionWithTitle:@"确定"
-                          style:UIAlertActionStyleCancel
-                        handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定"
+                                                  style:UIAlertActionStyleCancel
+                                                handler:nil]];
 
-        [self presentViewController:alert
-                           animated:YES
-                         completion:nil];
-
+        [self presentViewController:alert animated:YES completion:nil];
         return;
     }
 
-    DYDebugSnapshot *snapshot =
-        DYDebugCaptureSnapshot(target);
+    DYDebugSnapshot *snapshot = DYDebugCaptureSnapshot(target);
 
     if (snapshot == nil) {
-
         UIAlertController *alert =
-            [UIAlertController
-                alertControllerWithTitle:@"DYDebugKit"
-                                   message:@"无法创建调试快照"
-                            preferredStyle:UIAlertControllerStyleAlert];
+            [UIAlertController alertControllerWithTitle:@"DYDebugKit"
+                                               message:@"无法创建调试快照"
+                                        preferredStyle:UIAlertControllerStyleAlert];
 
-        [alert addAction:
-            [UIAlertAction
-                actionWithTitle:@"确定"
-                          style:UIAlertActionStyleCancel
-                        handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定"
+                                                  style:UIAlertActionStyleCancel
+                                                handler:nil]];
 
-        [self presentViewController:alert
-                           animated:YES
-                         completion:nil];
-
+        [self presentViewController:alert animated:YES completion:nil];
         return;
     }
 
     NSError *error = nil;
-
-    BOOL success =
-        [DYDebugExport exportSnapshot:snapshot
-                                error:&error];
+    BOOL success = [DYDebugExport exportSnapshot:snapshot error:&error];
 
     NSString *message = nil;
-
     if (success) {
-
-        message =
-            [NSTemporaryDirectory()
-                stringByAppendingPathComponent:@"DYDebugKit"];
-
-        NSLog(
-            @"[DYDebugKit] Export succeeded: %@",
-            message
-        );
-
+        message = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit"];
+        NSLog(@"[DYDebugKit] Export succeeded: %@", message);
     } else {
-
-        message =
-            error.localizedDescription
-                ?: @"导出失败";
-
-        NSLog(
-            @"[DYDebugKit] Export failed: %@",
-            error
-        );
+        message = error.localizedDescription ?: @"导出失败";
+        NSLog(@"[DYDebugKit] Export failed: %@", error);
     }
 
     UIAlertController *alert =
-        [UIAlertController
-            alertControllerWithTitle:@"DYDebugKit"
-                               message:message
-                        preferredStyle:UIAlertControllerStyleAlert];
+        [UIAlertController alertControllerWithTitle:@"DYDebugKit"
+                                           message:message
+                                    preferredStyle:UIAlertControllerStyleAlert];
 
-    [alert addAction:
-        [UIAlertAction
-            actionWithTitle:@"确定"
-                      style:UIAlertActionStyleCancel
-                    handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
 
-    [self presentViewController:alert
-                       animated:YES
-                     completion:nil];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 @end
@@ -195,25 +134,16 @@ static NSHashTable<UIWindow *> *gAttachedWindows = nil;
 
 @implementation DYDebugOverlayWindow
 
-- (BOOL)pointInside:(CGPoint)p
-          withEvent:(UIEvent *)event {
-
+- (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)event {
     DYDebugOverlayController *controller =
         (DYDebugOverlayController *)self.rootViewController;
 
-    if (controller == nil ||
-        controller.button == nil) {
-
+    if (controller == nil || controller.button == nil) {
         return NO;
     }
 
-    CGPoint local =
-        [self convertPoint:p
-                    toView:controller.button];
-
-    return
-        [controller.button pointInside:local
-                            withEvent:event];
+    CGPoint local = [self convertPoint:p toView:controller.button];
+    return [controller.button pointInside:local withEvent:event];
 }
 
 @end
@@ -221,18 +151,11 @@ static NSHashTable<UIWindow *> *gAttachedWindows = nil;
 #pragma mark - Show Overlay
 
 static UIWindowScene *DYDebugForegroundWindowScene(void) {
-
     if (@available(iOS 13.0, *)) {
+        UIApplication *application = UIApplication.sharedApplication;
 
-        UIApplication *application =
-            UIApplication.sharedApplication;
-
-        for (UIScene *scene
-             in application.connectedScenes) {
-
-            if (scene.activationState !=
-                UISceneActivationStateForegroundActive) {
-
+        for (UIScene *scene in application.connectedScenes) {
+            if (scene.activationState != UISceneActivationStateForegroundActive) {
                 continue;
             }
 
@@ -248,58 +171,34 @@ static UIWindowScene *DYDebugForegroundWindowScene(void) {
 }
 
 static void DYShowOverlay(void) {
-
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
-
-            if (gWindow != nil &&
-                !gWindow.hidden) {
-
-                return;
-            }
-
-            UIWindowScene *scene =
-                DYDebugForegroundWindowScene();
-
-            if (scene != nil) {
-
-                gWindow =
-                    [[DYDebugOverlayWindow alloc]
-                        initWithWindowScene:scene];
-
-            } else {
-
-                gWindow =
-                    [[DYDebugOverlayWindow alloc]
-                        initWithFrame:
-                            UIScreen.mainScreen.bounds];
-            }
-
-            gWindow.backgroundColor =
-                UIColor.clearColor;
-
-            gWindow.opaque = NO;
-
-            /*
-             * 只让浮窗自身可见。
-             *
-             * pointInside: 已经限制了实际触摸区域，
-             * 所以不会覆盖整个 App 的触摸。
-             */
-            gWindow.windowLevel =
-                UIWindowLevelAlert + 100.0;
-
-            gWindow.rootViewController =
-                [DYDebugOverlayController new];
-
-            gWindow.hidden = NO;
-
-            NSLog(
-                @"[DYDebugKit] Overlay shown"
-            );
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (gWindow != nil && !gWindow.hidden) {
+            return;
         }
-    );
+
+        UIWindowScene *scene = DYDebugForegroundWindowScene();
+
+        if (scene != nil) {
+            gWindow = [[DYDebugOverlayWindow alloc] initWithWindowScene:scene];
+        } else {
+            gWindow = [[DYDebugOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        }
+
+        gWindow.backgroundColor = UIColor.clearColor;
+        gWindow.opaque = NO;
+
+        /*
+         * 只让浮窗自身可见。
+         *
+         * pointInside: 已经限制了实际触摸区域，
+         * 所以不会覆盖整个 App 的触摸。
+         */
+        gWindow.windowLevel = UIWindowLevelAlert + 100.0;
+        gWindow.rootViewController = [DYDebugOverlayController new];
+        gWindow.hidden = NO;
+
+        NSLog(@"[DYDebugKit] Overlay shown");
+    });
 }
 
 #pragma mark - Activator
@@ -307,17 +206,11 @@ static void DYShowOverlay(void) {
 @implementation DYDebugActivator
 
 + (void)handle:(UILongPressGestureRecognizer *)gesture {
-
-    if (gesture.state !=
-        UIGestureRecognizerStateBegan) {
-
+    if (gesture.state != UIGestureRecognizerStateBegan) {
         return;
     }
 
-    NSLog(
-        @"[DYDebugKit] Two-finger long press detected"
-    );
-
+    NSLog(@"[DYDebugKit] Two-finger long press detected");
     DYShowOverlay();
 }
 
@@ -326,25 +219,19 @@ static void DYShowOverlay(void) {
 #pragma mark - Install Gesture
 
 static BOOL DYWindowAlreadyAttached(UIWindow *window) {
-
     if (window == nil) {
         return YES;
     }
 
     if (gAttachedWindows == nil) {
-
-        gAttachedWindows =
-            [NSHashTable weakObjectsHashTable];
-
+        gAttachedWindows = [NSHashTable weakObjectsHashTable];
         return NO;
     }
 
-    return
-        [gAttachedWindows containsObject:window];
+    return [gAttachedWindows containsObject:window];
 }
 
 static void DYInstallActivatorOnWindow(UIWindow *window) {
-
     if (window == nil) {
         return;
     }
@@ -395,18 +282,14 @@ static void DYInstallActivatorOnWindow(UIWindow *window) {
      * 2 秒用于测试，比原来的 3 秒更容易确认。
      */
     gesture.minimumPressDuration = 2.0;
-
     gesture.numberOfTouchesRequired = 2;
-
     gesture.numberOfTapsRequired = 0;
 
     /*
      * 不主动取消 App 原来的触摸。
      */
     gesture.cancelsTouchesInView = NO;
-
     gesture.delaysTouchesBegan = NO;
-
     gesture.delaysTouchesEnded = NO;
 
     /*
@@ -418,257 +301,163 @@ static void DYInstallActivatorOnWindow(UIWindow *window) {
     [window addGestureRecognizer:gesture];
 
     if (gAttachedWindows == nil) {
-
-        gAttachedWindows =
-            [NSHashTable weakObjectsHashTable];
+        gAttachedWindows = [NSHashTable weakObjectsHashTable];
     }
 
     [gAttachedWindows addObject:window];
 
-    NSLog(
-        @"[DYDebugKit] Activator attached to window: %@ level=%f",
-        NSStringFromClass(window.class),
-        window.windowLevel
-    );
+    NSLog(@"[DYDebugKit] Activator attached to window: %@ level=%f",
+          NSStringFromClass(window.class),
+          window.windowLevel);
 }
 
 #pragma mark - Attach All Windows
 
 static void DYAttachToCurrentWindows(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIApplication *application = UIApplication.sharedApplication;
+        NSUInteger count = 0;
 
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
-
-            UIApplication *application =
-                UIApplication.sharedApplication;
-
-            NSUInteger count = 0;
-
-            /*
-             * iOS 13+
-             *
-             * 一个 App 可以存在多个 UIWindowScene。
-             */
-            if (@available(iOS 13.0, *)) {
-
-                for (UIScene *scene
-                     in application.connectedScenes) {
-
-                    if (scene.activationState !=
-                        UISceneActivationStateForegroundActive) {
-
-                        continue;
-                    }
-
-                    if (![scene isKindOfClass:UIWindowScene.class]) {
-                        continue;
-                    }
-
-                    UIWindowScene *windowScene =
-                        (UIWindowScene *)scene;
-
-                    for (UIWindow *window
-                         in windowScene.windows) {
-
-                        DYInstallActivatorOnWindow(window);
-
-                        count++;
-                    }
+        /*
+         * iOS 13+
+         *
+         * 一个 App 可以存在多个 UIWindowScene。
+         */
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *scene in application.connectedScenes) {
+                if (scene.activationState != UISceneActivationStateForegroundActive) {
+                    continue;
                 }
 
-            } else {
+                if (![scene isKindOfClass:UIWindowScene.class]) {
+                    continue;
+                }
 
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+
+                for (UIWindow *window in windowScene.windows) {
+                    DYInstallActivatorOnWindow(window);
+                    count++;
+                }
+            }
+        } else {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
-                for (UIWindow *window
-                     in application.windows) {
-
-                    DYInstallActivatorOnWindow(window);
-
-                    count++;
-                }
-
-#pragma clang diagnostic pop
+            for (UIWindow *window in application.windows) {
+                DYInstallActivatorOnWindow(window);
+                count++;
             }
 
-            NSLog(
-                @"[DYDebugKit] Window scan completed: %lu",
-                (unsigned long)count
-            );
+#pragma clang diagnostic pop
         }
-    );
+
+        NSLog(@"[DYDebugKit] Window scan completed: %lu", (unsigned long)count);
+    });
 }
 
 #pragma mark - Periodic Window Scan
 
-static void DYStartWindowMonitor(void) {
+static void DYScanWindowsPeriodically(void) {
+    DYAttachToCurrentWindows();
 
-    /*
-     * 某些 App 在启动后才创建真正的业务 Window。
-     *
-     * 因此不能只在 %ctor 执行一次。
-     */
-    dispatch_async(
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
         dispatch_get_main_queue(),
         ^{
-
-            DYAttachToCurrentWindows();
-
-            /*
-             * 后续反复检查新出现的 Window。
-             *
-             * 已经安装过的 Window 会通过
-             * NSHashTable 自动跳过。
-             */
-            __block void (^scanBlock)(void);
-
-            scanBlock = ^{
-
-                DYAttachToCurrentWindows();
-
-                dispatch_after(
-                    dispatch_time(
-                        DISPATCH_TIME_NOW,
-                        (int64_t)(2.0 *
-                                  NSEC_PER_SEC)
-                    ),
-                    dispatch_get_main_queue(),
-                    scanBlock
-                );
-            };
-
-            dispatch_after(
-                dispatch_time(
-                    DISPATCH_TIME_NOW,
-                    (int64_t)(2.0 *
-                              NSEC_PER_SEC)
-                ),
-                dispatch_get_main_queue(),
-                scanBlock
-            );
+            DYScanWindowsPeriodically();
         }
     );
+}
+
+static void DYStartWindowMonitor(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // 立即开始扫描并进入循环
+        DYScanWindowsPeriodically();
+    });
 }
 
 #pragma mark - Constructor
 
 %ctor {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSLog(@"[DYDebugKit] Loaded");
 
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
+        /*
+         * 初始扫描。
+         */
+        DYAttachToCurrentWindows();
 
-            NSLog(
-                @"[DYDebugKit] Loaded"
-            );
-
-            /*
-             * 初始扫描。
-             */
-            DYAttachToCurrentWindows();
-
-            /*
-             * Window 成为 Key。
-             */
-            [[NSNotificationCenter defaultCenter]
-                addObserverForName:
-                    UIWindowDidBecomeKeyNotification
-                object:nil
-                 queue:
-                    [NSOperationQueue mainQueue]
-            usingBlock:
-                ^(NSNotification *note) {
-
-                    UIWindow *window =
-                        note.object;
-
-                    if (![window
-                            isKindOfClass:UIWindow.class]) {
-
-                        return;
-                    }
-
-                    DYInstallActivatorOnWindow(window);
-                }];
-
-            /*
-             * Window 显示。
-             */
-            [[NSNotificationCenter defaultCenter]
-                addObserverForName:
-                    UIWindowDidBecomeVisibleNotification
-                object:nil
-                 queue:
-                    [NSOperationQueue mainQueue]
-            usingBlock:
-                ^(NSNotification *note) {
-
-                    UIWindow *window =
-                        note.object;
-
-                    if (![window
-                            isKindOfClass:UIWindow.class]) {
-
-                        return;
-                    }
-
-                    DYInstallActivatorOnWindow(window);
-                }];
-
-            /*
-             * Scene 激活。
-             */
-            if (@available(iOS 13.0, *)) {
-
-                [[NSNotificationCenter defaultCenter]
-                    addObserverForName:
-                        UISceneDidActivateNotification
-                    object:nil
-                     queue:
-                        [NSOperationQueue mainQueue]
-                usingBlock:
-                    ^(__unused NSNotification *note) {
-
-                        DYAttachToCurrentWindows();
+        /*
+         * Window 成为 Key。
+         */
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:UIWindowDidBecomeKeyNotification
+                        object:nil
+                         queue:[NSOperationQueue mainQueue]
+                    usingBlock:^(NSNotification *note) {
+                        UIWindow *window = note.object;
+                        if (![window isKindOfClass:UIWindow.class]) {
+                            return;
+                        }
+                        DYInstallActivatorOnWindow(window);
                     }];
 
-                /*
-                 * Scene 连接。
-                 */
-                [[NSNotificationCenter defaultCenter]
-                    addObserverForName:
-                        UISceneDidConnectNotification
-                    object:nil
-                     queue:
-                        [NSOperationQueue mainQueue]
-                usingBlock:
-                    ^(__unused NSNotification *note) {
-
-                        DYAttachToCurrentWindows();
+        /*
+         * Window 显示。
+         */
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:UIWindowDidBecomeVisibleNotification
+                        object:nil
+                         queue:[NSOperationQueue mainQueue]
+                    usingBlock:^(NSNotification *note) {
+                        UIWindow *window = note.object;
+                        if (![window isKindOfClass:UIWindow.class]) {
+                            return;
+                        }
+                        DYInstallActivatorOnWindow(window);
                     }];
-            }
+
+        /*
+         * Scene 激活。
+         */
+        if (@available(iOS 13.0, *)) {
+            [[NSNotificationCenter defaultCenter]
+                addObserverForName:UISceneDidActivateNotification
+                            object:nil
+                             queue:[NSOperationQueue mainQueue]
+                        usingBlock:^(__unused NSNotification *note) {
+                            DYAttachToCurrentWindows();
+                        }];
 
             /*
-             * App 从后台回来时再次扫描。
+             * Scene 连接。
+             *
+             * 使用字符串字面量以避免旧 SDK 缺少常量声明。
              */
             [[NSNotificationCenter defaultCenter]
-                addObserverForName:
-                    UIApplicationDidBecomeActiveNotification
-                object:nil
-                 queue:
-                    [NSOperationQueue mainQueue]
-            usingBlock:
-                ^(__unused NSNotification *note) {
-
-                    DYAttachToCurrentWindows();
-                }];
-
-            /*
-             * 处理某些 App 延迟创建 Window 的情况。
-             */
-            DYStartWindowMonitor();
+                addObserverForName:@"UISceneDidConnectNotification"
+                            object:nil
+                             queue:[NSOperationQueue mainQueue]
+                        usingBlock:^(__unused NSNotification *note) {
+                            DYAttachToCurrentWindows();
+                        }];
         }
-    );
+
+        /*
+         * App 从后台回来时再次扫描。
+         */
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:UIApplicationDidBecomeActiveNotification
+                        object:nil
+                         queue:[NSOperationQueue mainQueue]
+                    usingBlock:^(__unused NSNotification *note) {
+                        DYAttachToCurrentWindows();
+                    }];
+
+        /*
+         * 处理某些 App 延迟创建 Window 的情况。
+         */
+        DYStartWindowMonitor();
+    });
 }
