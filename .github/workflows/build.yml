@@ -118,7 +118,7 @@ jobs:
 
 
       # ============================================================
-      # Theos
+      # Install Theos
       # ============================================================
 
       - name: Install Theos
@@ -150,10 +150,6 @@ jobs:
           echo "Theos commit:"
           git rev-parse HEAD
 
-          echo
-          echo "Theos directory:"
-          ls -la "$THEOS"
-
           echo "THEOS=$THEOS" >> "$GITHUB_ENV"
           echo "$THEOS/bin" >> "$GITHUB_PATH"
 
@@ -180,10 +176,6 @@ jobs:
           echo
           echo "Theos:"
           echo "$THEOS"
-
-          echo
-          echo "Makefiles:"
-          ls -la "$THEOS/makefiles"
 
 
       # ============================================================
@@ -261,32 +253,7 @@ jobs:
 
 
       # ============================================================
-      # Check Makefile
-      # ============================================================
-
-      - name: Validate Makefile
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "Makefile"
-          echo "================================"
-
-          cat Makefile
-
-          echo
-
-          grep -q "^TARGET =" Makefile
-          grep -q "^ARCHS =" Makefile
-          grep -q "^TWEAK_NAME = DYDebugKit" Makefile
-
-          echo
-          echo "Makefile OK."
-
-
-      # ============================================================
-      # Check control
+      # Validate control
       # ============================================================
 
       - name: Validate control
@@ -306,12 +273,20 @@ jobs:
           grep -q "^Version:" control
           grep -q "^Architecture:" control
 
+          VERSION="$(awk -F': *' '$1 == "Version" {print $2; exit}' control)"
+
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Version is empty."
+            exit 1
+          fi
+
           echo
+          echo "Version=$VERSION"
           echo "control OK."
 
 
       # ============================================================
-      # Check plist
+      # Validate plist
       # ============================================================
 
       - name: Validate plist
@@ -334,10 +309,39 @@ jobs:
 
 
       # ============================================================
-      # Check packaging tools
+      # Show Makefile
       # ============================================================
 
-      - name: Check packaging environment
+      - name: Validate Makefile
+        shell: bash
+        run: |
+          set -e
+
+          echo "================================"
+          echo "Makefile"
+          echo "================================"
+
+          cat Makefile
+
+          echo
+
+          grep -q "^TARGET =" Makefile
+          grep -q "^ARCHS =" Makefile
+          grep -q "^TWEAK_NAME = DYDebugKit" Makefile
+
+          grep -q "package-rootful" Makefile
+          grep -q "package-rootless" Makefile
+          grep -q "package-roothide" Makefile
+
+          echo
+          echo "Makefile OK."
+
+
+      # ============================================================
+      # Check RootHide support
+      # ============================================================
+
+      - name: Check RootHide Theos
         shell: bash
         run: |
           set -e
@@ -345,39 +349,27 @@ jobs:
           export THEOS="$HOME/theos"
 
           echo "================================"
-          echo "Packaging"
+          echo "RootHide"
           echo "================================"
 
-          echo
-          echo "dpkg:"
-          dpkg --version
+          if [ -d "$THEOS/vendor/mod/roothide" ]; then
+            echo "RootHide module found:"
+            echo "$THEOS/vendor/mod/roothide"
 
-          echo
-          echo "Theos package.mk:"
-          test -f "$THEOS/makefiles/package.mk"
+          elif [ -d "$THEOS/vendor/lib/iphone/rootless" ]; then
+            echo "Rootless support found."
 
-          echo
-          echo "Searching for dm.pl..."
-
-          DM_PL="$(find "$THEOS" \
-            -type f \
-            -name "dm.pl" \
-            -print \
-            -quit || true)"
-
-          if [ -n "$DM_PL" ]; then
-            echo "dm.pl found:"
-            echo "$DM_PL"
           else
-            echo "dm.pl not found in Theos checkout."
+            echo "RootHide scheme is not included in official Theos."
+            echo "RootHide package will be handled separately."
           fi
 
 
       # ============================================================
-      # Build
+      # Build Rootful
       # ============================================================
 
-      - name: Build DYDebugKit
+      - name: Build Rootful
         shell: bash
         run: |
           set -e
@@ -386,79 +378,198 @@ jobs:
           export PATH="$THEOS/bin:$PATH"
 
           echo "================================"
-          echo "Build DYDebugKit"
+          echo "Build Rootful"
           echo "================================"
 
-          echo
-          echo "THEOS=$THEOS"
+          rm -rf .theos
+
+          make package-rootful FINALPACKAGE=1
 
           echo
-          echo "Cleaning..."
+          echo "Rootful packages:"
 
-          make clean
-
-          echo
-          echo "Building..."
-
-          make package FINALPACKAGE=1
-
-          echo
-          echo "Build completed."
+          find packages \
+            -type f \
+            -name "*.deb" \
+            -print \
+            | sort
 
 
       # ============================================================
-      # Find package
+      # Build Rootless
       # ============================================================
 
-      - name: Find DEB
+      - name: Build Rootless
+        shell: bash
+        run: |
+          set -e
+
+          export THEOS="$HOME/theos"
+          export PATH="$THEOS/bin:$PATH"
+
+          echo "================================"
+          echo "Build Rootless"
+          echo "================================"
+
+          rm -rf .theos
+
+          make package-rootless FINALPACKAGE=1
+
+          echo
+          echo "Rootless packages:"
+
+          find packages \
+            -type f \
+            -name "*.deb" \
+            -print \
+            | sort
+
+
+      # ============================================================
+      # RootHide
+      # ============================================================
+
+      - name: Install RootHide Theos
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -e
+
+          echo "================================"
+          echo "RootHide Theos"
+          echo "================================"
+
+          ROOTHIDE_THEOS="$HOME/theos-roothide"
+
+          rm -rf "$ROOTHIDE_THEOS"
+
+          git clone \
+            --depth=1 \
+            --recurse-submodules \
+            https://github.com/roothide/theos.git \
+            "$ROOTHIDE_THEOS"
+
+          cd "$ROOTHIDE_THEOS"
+
+          git submodule update \
+            --init \
+            --recursive
+
+          echo
+          echo "RootHide Theos:"
+          git rev-parse HEAD
+
+          echo "ROOTHIDE_THEOS=$ROOTHIDE_THEOS" >> "$GITHUB_ENV"
+
+
+      # ============================================================
+      # Build RootHide
+      # ============================================================
+
+      - name: Build RootHide
+        shell: bash
+        run: |
+          set -e
+
+          export THEOS="$HOME/theos-roothide"
+          export PATH="$THEOS/bin:$PATH"
+
+          echo "================================"
+          echo "Build RootHide"
+          echo "================================"
+
+          if [ ! -f "$THEOS/makefiles/common.mk" ]; then
+            echo "ERROR: RootHide Theos not available."
+            exit 1
+          fi
+
+          rm -rf .theos
+
+          make package-roothide FINALPACKAGE=1
+
+          echo
+          echo "RootHide packages:"
+
+          find packages \
+            -type f \
+            -name "*.deb" \
+            -print \
+            | sort
+
+
+      # ============================================================
+      # List packages
+      # ============================================================
+
+      - name: List all DEB packages
         shell: bash
         run: |
           set -e
 
           echo "================================"
-          echo "DEB Package"
+          echo "Final Packages"
           echo "================================"
 
           if [ ! -d packages ]; then
-            echo "packages directory does not exist."
+            echo "ERROR: packages directory does not exist."
             exit 1
           fi
 
           find packages \
             -type f \
+            -name "*.deb" \
             -print \
             | sort
 
-          PACKAGE="$(find packages \
+          COUNT="$(find packages \
             -type f \
             -name "*.deb" \
-            -print \
-            -quit)"
+            | wc -l | tr -d ' ')"
 
-          if [ -z "$PACKAGE" ]; then
-            echo
-            echo "ERROR: No DEB package generated."
+          echo
+          echo "Package count: $COUNT"
+
+          if [ "$COUNT" -lt 2 ]; then
+            echo "ERROR: Expected at least Rootful + Rootless packages."
             exit 1
           fi
-
-          echo
-          echo "Package:"
-          echo "$PACKAGE"
-
-          echo
-          ls -lh "$PACKAGE"
-
-          echo
-          file "$PACKAGE"
 
 
       # ============================================================
       # Upload
       # ============================================================
 
-      - name: Upload DEB
+      - name: Upload Rootful
         uses: actions/upload-artifact@v4
         with:
-          name: DYDebugKit-deb
+          name: DYDebugKit-rootful
+          path: packages/*rootful*.deb
+          if-no-files-found: error
+
+
+      - name: Upload Rootless
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYDebugKit-rootless
+          path: packages/*rootless*.deb
+          if-no-files-found: error
+
+
+      - name: Upload RootHide
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYDebugKit-roothide
+          path: packages/*roothide*.deb
+          if-no-files-found: warn
+
+
+      # ============================================================
+      # Upload all
+      # ============================================================
+
+      - name: Upload all packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYDebugKit-all-packages
           path: packages/*.deb
           if-no-files-found: error
