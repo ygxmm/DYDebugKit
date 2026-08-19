@@ -1,0 +1,45 @@
+name: Build DYDebugKit
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install make ldid
+
+      - name: Install Theos
+        run: |
+          git clone --depth=1 https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Install iOS SDK
+        run: |
+          "$HOME/theos/bin/bootstrap.sh" || true
+
+      - name: Build package
+        run: |
+          export THEOS="$HOME/theos"
+          make clean
+          make package FINALPACKAGE=1
+
+      - name: Find package
+        run: |
+          find packages -type f -name "*.deb" -print
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYDebugKit-deb
+          path: packages/*.deb
+          if-no-files-found: error
