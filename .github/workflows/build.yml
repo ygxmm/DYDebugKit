@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+
   workflow_dispatch:
 
 permissions:
@@ -16,19 +17,19 @@ jobs:
 
     steps:
 
-      # ------------------------------------------------------------
+      # ============================================================
       # Checkout
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Checkout
         uses: actions/checkout@v4
 
 
-      # ------------------------------------------------------------
+      # ============================================================
       # Xcode
-      # ------------------------------------------------------------
+      # ============================================================
 
-      - name: Setup Xcode
+      - name: Select Xcode
         shell: bash
         run: |
           set -e
@@ -37,19 +38,34 @@ jobs:
           echo "Xcode"
           echo "================================"
 
-          sudo xcode-select \
-            --switch \
-            /Applications/Xcode_15.4.app/Contents/Developer
+          XCODE="/Applications/Xcode_15.4.app/Contents/Developer"
 
+          if [ ! -d "$XCODE" ]; then
+            echo "Xcode 15.4 not found."
+
+            echo
+            echo "Available Xcode:"
+            ls -la /Applications | grep Xcode || true
+
+            exit 1
+          fi
+
+          sudo xcode-select --switch "$XCODE"
+
+          echo
+          echo "Developer:"
           xcode-select -p
+
+          echo
+          echo "Version:"
           xcodebuild -version
 
 
-      # ------------------------------------------------------------
-      # iOS SDK
-      # ------------------------------------------------------------
+      # ============================================================
+      # SDK
+      # ============================================================
 
-      - name: Check iPhoneOS SDK
+      - name: Check iOS SDK
         shell: bash
         run: |
           set -e
@@ -61,19 +77,15 @@ jobs:
           SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
           SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
 
-          echo "SDK:"
-          echo "$SDK_PATH"
-
-          echo
-          echo "SDK Version:"
-          echo "$SDK_VERSION"
+          echo "SDK_PATH=$SDK_PATH"
+          echo "SDK_VERSION=$SDK_VERSION"
 
           test -d "$SDK_PATH"
 
 
-      # ------------------------------------------------------------
+      # ============================================================
       # Dependencies
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Install dependencies
         shell: bash
@@ -84,20 +96,30 @@ jobs:
           echo "Dependencies"
           echo "================================"
 
-          brew install ldid dpkg
+          brew update
+
+          brew install \
+            ldid \
+            dpkg \
+            perl \
+            coreutils
 
           echo
           echo "ldid:"
-          which ldid
+          command -v ldid
 
           echo
           echo "dpkg:"
-          which dpkg
+          command -v dpkg
+
+          echo
+          echo "perl:"
+          command -v perl
 
 
-      # ------------------------------------------------------------
+      # ============================================================
       # Theos
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Install Theos
         shell: bash
@@ -105,7 +127,7 @@ jobs:
           set -e
 
           echo "================================"
-          echo "Install Theos"
+          echo "Theos"
           echo "================================"
 
           export THEOS="$HOME/theos"
@@ -114,87 +136,31 @@ jobs:
 
           git clone \
             --depth=1 \
+            --recurse-submodules \
             https://github.com/theos/theos.git \
             "$THEOS"
 
-          test -d "$THEOS"
-          test -f "$THEOS/makefiles/common.mk"
-          test -f "$THEOS/makefiles/package.mk"
+          cd "$THEOS"
+
+          git submodule update \
+            --init \
+            --recursive
+
+          echo
+          echo "Theos commit:"
+          git rev-parse HEAD
+
+          echo
+          echo "Theos directory:"
+          ls -la "$THEOS"
 
           echo "THEOS=$THEOS" >> "$GITHUB_ENV"
           echo "$THEOS/bin" >> "$GITHUB_PATH"
 
-          echo
-          echo "Theos installed."
 
-
-      # ------------------------------------------------------------
-      # Theos dependencies
-      # ------------------------------------------------------------
-
-      - name: Install Theos dependencies
-        shell: bash
-        run: |
-          set -e
-
-          export THEOS="$HOME/theos"
-
-          echo "================================"
-          echo "Theos Dependencies"
-          echo "================================"
-
-          # Theos uses these tools during compilation/packaging.
-          brew install perl coreutils
-
-          echo
-          echo "Perl:"
-          perl --version | head -2
-
-          echo
-          echo "Theos:"
-          ls -la "$THEOS"
-
-
-      # ------------------------------------------------------------
-      # Link Apple's SDK into Theos
-      # ------------------------------------------------------------
-
-      - name: Configure iOS SDK
-        shell: bash
-        run: |
-          set -e
-
-          export THEOS="$HOME/theos"
-
-          echo "================================"
-          echo "Configure iOS SDK"
-          echo "================================"
-
-          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
-          SDK_NAME="$(basename "$SDK_PATH")"
-
-          echo "SDK_PATH=$SDK_PATH"
-          echo "SDK_NAME=$SDK_NAME"
-
-          mkdir -p "$THEOS/sdks"
-
-          rm -rf "$THEOS/sdks/$SDK_NAME"
-
-          ln -s \
-            "$SDK_PATH" \
-            "$THEOS/sdks/$SDK_NAME"
-
-          echo
-          echo "Theos SDKs:"
-          find "$THEOS/sdks" \
-            -maxdepth 1 \
-            -type l \
-            -print
-
-
-      # ------------------------------------------------------------
+      # ============================================================
       # Verify Theos
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Verify Theos
         shell: bash
@@ -216,16 +182,49 @@ jobs:
           echo "$THEOS"
 
           echo
-          echo "SDK:"
+          echo "Makefiles:"
+          ls -la "$THEOS/makefiles"
+
+
+      # ============================================================
+      # Configure SDK
+      # ============================================================
+
+      - name: Configure Theos SDK
+        shell: bash
+        run: |
+          set -e
+
+          export THEOS="$HOME/theos"
+
+          echo "================================"
+          echo "Configure SDK"
+          echo "================================"
+
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          SDK_NAME="$(basename "$SDK_PATH")"
+
+          echo "SDK_PATH=$SDK_PATH"
+          echo "SDK_NAME=$SDK_NAME"
+
+          mkdir -p "$THEOS/sdks"
+
+          rm -rf "$THEOS/sdks/$SDK_NAME"
+
+          ln -s \
+            "$SDK_PATH" \
+            "$THEOS/sdks/$SDK_NAME"
+
+          echo
+          echo "Theos SDK:"
           find "$THEOS/sdks" \
             -maxdepth 1 \
-            -type l \
             -print
 
 
-      # ------------------------------------------------------------
-      # Project structure
-      # ------------------------------------------------------------
+      # ============================================================
+      # Check project
+      # ============================================================
 
       - name: Check project
         shell: bash
@@ -243,7 +242,7 @@ jobs:
             | sort
 
           echo
-          echo "Required files..."
+          echo "Checking required files..."
 
           test -f Makefile
           test -f control
@@ -261,9 +260,9 @@ jobs:
           echo "Project structure OK."
 
 
-      # ------------------------------------------------------------
-      # Makefile
-      # ------------------------------------------------------------
+      # ============================================================
+      # Check Makefile
+      # ============================================================
 
       - name: Validate Makefile
         shell: bash
@@ -278,15 +277,17 @@ jobs:
 
           echo
 
-          grep -q "TWEAK_NAME" Makefile
+          grep -q "^TARGET =" Makefile
+          grep -q "^ARCHS =" Makefile
+          grep -q "^TWEAK_NAME = DYDebugKit" Makefile
 
           echo
           echo "Makefile OK."
 
 
-      # ------------------------------------------------------------
-      # control
-      # ------------------------------------------------------------
+      # ============================================================
+      # Check control
+      # ============================================================
 
       - name: Validate control
         shell: bash
@@ -309,9 +310,9 @@ jobs:
           echo "control OK."
 
 
-      # ------------------------------------------------------------
-      # plist
-      # ------------------------------------------------------------
+      # ============================================================
+      # Check plist
+      # ============================================================
 
       - name: Validate plist
         shell: bash
@@ -319,7 +320,7 @@ jobs:
           set -e
 
           echo "================================"
-          echo "plist"
+          echo "DYDebugKit.plist"
           echo "================================"
 
           cat DYDebugKit.plist
@@ -332,11 +333,51 @@ jobs:
           echo "plist OK."
 
 
-      # ------------------------------------------------------------
-      # Build
-      # ------------------------------------------------------------
+      # ============================================================
+      # Check packaging tools
+      # ============================================================
 
-      - name: Build package
+      - name: Check packaging environment
+        shell: bash
+        run: |
+          set -e
+
+          export THEOS="$HOME/theos"
+
+          echo "================================"
+          echo "Packaging"
+          echo "================================"
+
+          echo
+          echo "dpkg:"
+          dpkg --version
+
+          echo
+          echo "Theos package.mk:"
+          test -f "$THEOS/makefiles/package.mk"
+
+          echo
+          echo "Searching for dm.pl..."
+
+          DM_PL="$(find "$THEOS" \
+            -type f \
+            -name "dm.pl" \
+            -print \
+            -quit || true)"
+
+          if [ -n "$DM_PL" ]; then
+            echo "dm.pl found:"
+            echo "$DM_PL"
+          else
+            echo "dm.pl not found in Theos checkout."
+          fi
+
+
+      # ============================================================
+      # Build
+      # ============================================================
+
+      - name: Build DYDebugKit
         shell: bash
         run: |
           set -e
@@ -365,18 +406,23 @@ jobs:
           echo "Build completed."
 
 
-      # ------------------------------------------------------------
-      # Find DEB
-      # ------------------------------------------------------------
+      # ============================================================
+      # Find package
+      # ============================================================
 
-      - name: Find package
+      - name: Find DEB
         shell: bash
         run: |
           set -e
 
           echo "================================"
-          echo "Package"
+          echo "DEB Package"
           echo "================================"
+
+          if [ ! -d packages ]; then
+            echo "packages directory does not exist."
+            exit 1
+          fi
 
           find packages \
             -type f \
@@ -391,12 +437,12 @@ jobs:
 
           if [ -z "$PACKAGE" ]; then
             echo
-            echo "ERROR: No .deb package found."
+            echo "ERROR: No DEB package generated."
             exit 1
           fi
 
           echo
-          echo "DEB:"
+          echo "Package:"
           echo "$PACKAGE"
 
           echo
@@ -406,9 +452,9 @@ jobs:
           file "$PACKAGE"
 
 
-      # ------------------------------------------------------------
-      # Artifact
-      # ------------------------------------------------------------
+      # ============================================================
+      # Upload
+      # ============================================================
 
       - name: Upload DEB
         uses: actions/upload-artifact@v4
@@ -416,18 +462,3 @@ jobs:
           name: DYDebugKit-deb
           path: packages/*.deb
           if-no-files-found: error
-
-
-      # ------------------------------------------------------------
-      # Diagnostic artifact
-      # ------------------------------------------------------------
-
-      - name: Upload build output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: DYDebugKit-build-output
-          path: |
-            packages/**
-            .theos/**
-          if-no-files-found: ignore
