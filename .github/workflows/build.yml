@@ -4,98 +4,188 @@ on:
   push:
     branches:
       - main
+
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build Debian Package
     runs-on: macos-14
 
     steps:
+
+      # --------------------------------------------------
+      # Checkout
+      # --------------------------------------------------
+
       - name: Checkout
         uses: actions/checkout@v4
+
+
+      # --------------------------------------------------
+      # Dependencies
+      # --------------------------------------------------
 
       - name: Install dependencies
         shell: bash
         run: |
           set -e
 
-          brew install ldid dpkg
+          brew update
+
+          brew install \
+            ldid \
+            dpkg
+
+
+      # --------------------------------------------------
+      # Install Theos
+      # --------------------------------------------------
 
       - name: Install Theos
         shell: bash
         run: |
           set -e
 
-          export THEOS="$HOME/theos"
+          THEOS="$HOME/theos"
 
-          git clone --depth=1 \
+          if [ -d "$THEOS" ]; then
+            rm -rf "$THEOS"
+          fi
+
+          git clone \
+            --depth=1 \
             https://github.com/theos/theos.git \
             "$THEOS"
 
           echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+
           echo "$THEOS/bin" >> "$GITHUB_PATH"
 
-      - name: Prepare Theos
+
+      # --------------------------------------------------
+      # Verify Theos
+      # --------------------------------------------------
+
+      - name: Verify Theos
         shell: bash
         run: |
           set -e
 
           export THEOS="$HOME/theos"
 
-          echo "THEOS=$THEOS"
+          echo "================================"
+          echo "THEOS"
+          echo "================================"
 
-          if [ ! -d "$THEOS" ]; then
-            echo "Theos directory not found"
-            exit 1
-          fi
+          echo "$THEOS"
 
-          echo "Checking Theos..."
+          test -d "$THEOS"
 
-          "$THEOS/bin/bootstrap.sh"
+          test -f "$THEOS/makefiles/common.mk"
 
-      - name: Check packaging tools
+          echo
+          echo "Theos OK"
+
+
+      # --------------------------------------------------
+      # Check SDK
+      # --------------------------------------------------
+
+      - name: Check iOS SDK
         shell: bash
         run: |
           set -e
 
           export THEOS="$HOME/theos"
 
-          echo "Searching for dm.pl..."
+          echo "================================"
+          echo "SDK"
+          echo "================================"
 
-          DM_PL="$(find "$THEOS" -name "dm.pl" -type f | head -n 1)"
+          SDK_COUNT=0
 
-          if [ -z "$DM_PL" ]; then
-            echo "ERROR: dm.pl was not found."
+          while IFS= read -r sdk; do
+            echo "$sdk"
+            SDK_COUNT=$((SDK_COUNT + 1))
+          done < <(
+            find "$THEOS" \
+              -type d \
+              -name "iPhoneOS*.sdk" \
+              -print
+          )
+
+          if [ "$SDK_COUNT" -eq 0 ]; then
             echo
-            echo "Theos directory:"
-            find "$THEOS" -maxdepth 3 -type f | sort | head -200
+            echo "No iPhoneOS SDK found in Theos."
+            echo
+            echo "The build cannot continue."
             exit 1
           fi
 
-          echo "Found:"
-          echo "$DM_PL"
 
-          chmod +x "$DM_PL"
+      # --------------------------------------------------
+      # Check Project
+      # --------------------------------------------------
 
-      - name: Check project
+      - name: Check project files
         shell: bash
         run: |
           set -e
 
-          echo "Project files:"
-          find . -maxdepth 2 -type f | sort
+          echo "================================"
+          echo "Project"
+          echo "================================"
 
           echo
-          echo "Makefile:"
+          echo "Files:"
+
+          find . \
+            -maxdepth 2 \
+            -type f \
+            -not -path "./.git/*" \
+            | sort
+
+          echo
+
           test -f Makefile
-
-          echo
-          echo "control:"
           test -f control
+          test -f DYDebugKit.plist
+
+          test -f Entry.xm
+          test -f DYDebugCapture.h
+          test -f DYDebugCapture.m
+          test -f DYDebugExport.h
+          test -f DYDebugExport.m
 
           echo
-          echo "Filter plist:"
-          test -f DYDebugKit.plist
+          echo "Project structure OK"
+
+
+      # --------------------------------------------------
+      # Validate Makefile
+      # --------------------------------------------------
+
+      - name: Validate Makefile
+        shell: bash
+        run: |
+          set -e
+
+          echo "================================"
+          echo "Makefile"
+          echo "================================"
+
+          grep -q "TWEAK_NAME = DYDebugKit" Makefile
+          grep -q "Entry.xm" Makefile
+          grep -q "DYDebugCapture.m" Makefile
+          grep -q "DYDebugExport.m" Makefile
+
+          echo "Makefile OK"
+
+
+      # --------------------------------------------------
+      # Build
+      # --------------------------------------------------
 
       - name: Build package
         shell: bash
@@ -105,27 +195,56 @@ jobs:
           export THEOS="$HOME/theos"
           export PATH="$THEOS/bin:$PATH"
 
-          echo "THEOS=$THEOS"
-          echo "PATH=$PATH"
+          echo "================================"
+          echo "Build"
+          echo "================================"
 
           make clean
-          make package FINALPACKAGE=1
+
+          make package \
+            FINALPACKAGE=1
+
+
+      # --------------------------------------------------
+      # Locate DEB
+      # --------------------------------------------------
 
       - name: Find package
         shell: bash
         run: |
           set -e
 
-          echo "Generated packages:"
+          echo "================================"
+          echo "Packages"
+          echo "================================"
 
           find packages \
             -type f \
             -name "*.deb" \
             -print
 
-          test -n "$(find packages -type f -name '*.deb' -print -quit)"
+          PACKAGE="$(find packages \
+            -type f \
+            -name "*.deb" \
+            -print \
+            -quit)"
 
-      - name: Upload DEB artifact
+          if [ -z "$PACKAGE" ]; then
+            echo
+            echo "ERROR: No .deb package generated."
+            exit 1
+          fi
+
+          echo
+          echo "Generated:"
+          echo "$PACKAGE"
+
+
+      # --------------------------------------------------
+      # Upload Artifact
+      # --------------------------------------------------
+
+      - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
           name: DYDebugKit-deb
