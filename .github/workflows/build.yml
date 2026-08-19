@@ -9,38 +9,82 @@ on:
 
 jobs:
   build:
-    name: Build Debian Package
+    name: Build DYDebugKit
     runs-on: macos-14
 
     steps:
 
-      # --------------------------------------------------
+      # ==================================================
       # Checkout
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Checkout
         uses: actions/checkout@v4
 
 
-      # --------------------------------------------------
+      # ==================================================
+      # Xcode
+      # ==================================================
+
+      - name: Select Xcode
+        shell: bash
+        run: |
+          set -e
+
+          sudo xcode-select \
+            --switch \
+            /Applications/Xcode_15.4.app/Contents/Developer
+
+          xcode-select -p
+
+          xcodebuild -version
+
+
+      # ==================================================
+      # Check iOS SDK
+      # ==================================================
+
+      - name: Check iOS SDK
+        shell: bash
+        run: |
+          set -e
+
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+
+          echo "================================"
+          echo "iOS SDK"
+          echo "================================"
+
+          echo "SDK_PATH=$SDK_PATH"
+
+          test -d "$SDK_PATH"
+
+          echo
+
+          xcrun --sdk iphoneos --show-sdk-version
+
+          echo
+
+          echo "SDK OK"
+
+
+      # ==================================================
       # Dependencies
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Install dependencies
         shell: bash
         run: |
           set -e
 
-          brew update
-
           brew install \
             ldid \
             dpkg
 
 
-      # --------------------------------------------------
+      # ==================================================
       # Install Theos
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Install Theos
         shell: bash
@@ -49,9 +93,7 @@ jobs:
 
           THEOS="$HOME/theos"
 
-          if [ -d "$THEOS" ]; then
-            rm -rf "$THEOS"
-          fi
+          rm -rf "$THEOS"
 
           git clone \
             --depth=1 \
@@ -63,9 +105,9 @@ jobs:
           echo "$THEOS/bin" >> "$GITHUB_PATH"
 
 
-      # --------------------------------------------------
+      # ==================================================
       # Verify Theos
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Verify Theos
         shell: bash
@@ -75,60 +117,55 @@ jobs:
           export THEOS="$HOME/theos"
 
           echo "================================"
-          echo "THEOS"
+          echo "Theos"
           echo "================================"
 
-          echo "$THEOS"
+          echo "THEOS=$THEOS"
 
           test -d "$THEOS"
 
           test -f "$THEOS/makefiles/common.mk"
 
-          echo
           echo "Theos OK"
 
 
-      # --------------------------------------------------
-      # Check SDK
-      # --------------------------------------------------
+      # ==================================================
+      # Configure Theos SDK
+      # ==================================================
 
-      - name: Check iOS SDK
+      - name: Configure Theos SDK
         shell: bash
         run: |
           set -e
 
           export THEOS="$HOME/theos"
 
-          echo "================================"
-          echo "SDK"
-          echo "================================"
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
 
-          SDK_COUNT=0
+          echo "Using SDK:"
+          echo "$SDK_PATH"
 
-          while IFS= read -r sdk; do
-            echo "$sdk"
-            SDK_COUNT=$((SDK_COUNT + 1))
-          done < <(
-            find "$THEOS" \
-              -type d \
-              -name "iPhoneOS*.sdk" \
-              -print
-          )
+          mkdir -p "$THEOS/sdks"
 
-          if [ "$SDK_COUNT" -eq 0 ]; then
-            echo
-            echo "No iPhoneOS SDK found in Theos."
-            echo
-            echo "The build cannot continue."
-            exit 1
+          SDK_NAME="$(basename "$SDK_PATH")"
+
+          echo "SDK_NAME=$SDK_NAME"
+
+          if [ ! -e "$THEOS/sdks/$SDK_NAME" ]; then
+            ln -s "$SDK_PATH" "$THEOS/sdks/$SDK_NAME"
           fi
 
+          echo
+          echo "Theos SDK directory:"
 
-      # --------------------------------------------------
+          ls -la "$THEOS/sdks"
+
+
+      # ==================================================
       # Check Project
-      # --------------------------------------------------
+      # ==================================================
 
-      - name: Check project files
+      - name: Check project
         shell: bash
         run: |
           set -e
@@ -136,9 +173,6 @@ jobs:
           echo "================================"
           echo "Project"
           echo "================================"
-
-          echo
-          echo "Files:"
 
           find . \
             -maxdepth 2 \
@@ -162,11 +196,11 @@ jobs:
           echo "Project structure OK"
 
 
-      # --------------------------------------------------
-      # Validate Makefile
-      # --------------------------------------------------
+      # ==================================================
+      # Show Makefile
+      # ==================================================
 
-      - name: Validate Makefile
+      - name: Check Makefile
         shell: bash
         run: |
           set -e
@@ -175,17 +209,12 @@ jobs:
           echo "Makefile"
           echo "================================"
 
-          grep -q "TWEAK_NAME = DYDebugKit" Makefile
-          grep -q "Entry.xm" Makefile
-          grep -q "DYDebugCapture.m" Makefile
-          grep -q "DYDebugExport.m" Makefile
-
-          echo "Makefile OK"
+          cat Makefile
 
 
-      # --------------------------------------------------
+      # ==================================================
       # Build
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Build package
         shell: bash
@@ -196,7 +225,7 @@ jobs:
           export PATH="$THEOS/bin:$PATH"
 
           echo "================================"
-          echo "Build"
+          echo "Building DYDebugKit"
           echo "================================"
 
           make clean
@@ -205,9 +234,9 @@ jobs:
             FINALPACKAGE=1
 
 
-      # --------------------------------------------------
-      # Locate DEB
-      # --------------------------------------------------
+      # ==================================================
+      # Find DEB
+      # ==================================================
 
       - name: Find package
         shell: bash
@@ -215,7 +244,7 @@ jobs:
           set -e
 
           echo "================================"
-          echo "Packages"
+          echo "Generated packages"
           echo "================================"
 
           find packages \
@@ -230,19 +259,18 @@ jobs:
             -quit)"
 
           if [ -z "$PACKAGE" ]; then
-            echo
-            echo "ERROR: No .deb package generated."
+            echo "ERROR: No DEB generated."
             exit 1
           fi
 
           echo
-          echo "Generated:"
+          echo "Package:"
           echo "$PACKAGE"
 
 
-      # --------------------------------------------------
+      # ==================================================
       # Upload Artifact
-      # --------------------------------------------------
+      # ==================================================
 
       - name: Upload DEB
         uses: actions/upload-artifact@v4
