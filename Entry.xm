@@ -1,7 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
-#import "Debug/DYDebugCapture.h"
-#import "Debug/DYDebugExport.h"
+#import "DYDebugCapture.h"
+#import "DYDebugExport.h"
 
 #pragma mark - Overlay
 
