@@ -1,4 +1,10 @@
 #import <Foundation/Foundation.h>
-#import "DYDebugCapture.h"
 
-NSURL *DYDebugExportSnapshot(DYDebugSnapshot *snapshot, NSError **error);
+@class DYDebugSnapshot;
+
+@interface DYDebugExport : NSObject
+
++ (BOOL)exportSnapshot:(DYDebugSnapshot *)snapshot
+                 error:(NSError **)error;
+
+@end
