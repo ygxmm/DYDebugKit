@@ -112,7 +112,7 @@ jobs:
           fi
           ldid -v || true
 
-      # ★★★ 新增：下载 iOS 14.5 SDK ★★★
+      # ★★★ 下载 iOS 14.5 SDK（用 raw/master URL）★★★
       - name: Install iOS 14.5 SDK
         run: |
           set -e
@@ -120,7 +120,8 @@ jobs:
           mkdir -p "$THEOS/sdks"
           cd /tmp
           curl -L -o iPhoneOS14.5.sdk.tar.xz \
-            https://github.com/theos/sdks/releases/download/master/iPhoneOS14.5.sdk.tar.xz
+            https://github.com/theos/sdks/raw/master/iPhoneOS14.5.sdk.tar.xz
+          ls -la iPhoneOS14.5.sdk.tar.xz
           tar -xf iPhoneOS14.5.sdk.tar.xz -C "$THEOS/sdks/"
           echo "===== Installed SDKs ====="
           ls -la "$THEOS/sdks/"
