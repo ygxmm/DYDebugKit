@@ -19,9 +19,13 @@
         return NO;
     }
 
+    // 统一使用 NSTemporaryDirectory()，便于分享后清理
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit"];
     NSFileManager *fm = NSFileManager.defaultManager;
     NSError *mkdirError = nil;
+
+    // 先清掉旧目录，避免残留
+    [fm removeItemAtPath:root error:nil];
 
     if (![fm createDirectoryAtPath:root
        withIntermediateDirectories:YES
@@ -56,7 +60,7 @@
     NSString *metadataPath = [root stringByAppendingPathComponent:@"metadata.json"];
     if (![metadataData writeToFile:metadataPath options:NSDataWritingAtomic error:error]) return NO;
 
-    // 4. screenshot.png（避免 dispatch_sync 死锁）
+    // 4. screenshot.png —— 避免 dispatch_sync 死锁
     __block NSData *pngData = nil;
     void (^captureBlock)(void) = ^{
         UIWindow *keyWindow = nil;
@@ -119,7 +123,7 @@
                     if (name.length == 0) continue;
                     if (DKClassNameIsRuntimeGenerated(name)) continue;
 
-                    // 只保留合法文件名（过滤 Swift / 带符号的名字）
+                    // 只保留合法文件名
                     NSCharacterSet *invalid = [[NSCharacterSet
                         characterSetWithCharactersInString:
                         @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"]
