@@ -16,8 +16,8 @@ static BOOL DYIsCurrentAppEnabled(void) {
     // 系统守护进程不加载
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
 
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
-    NSDictionary *enabled = dict[@"enabledApps"];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.ygxmm.dydebugkit"];
+    NSDictionary *enabled = [defaults objectForKey:@"enabledApps"];
     if (![enabled isKindOfClass:NSDictionary.class]) return NO;
 
     return [enabled[bid] boolValue];

@@ -60,15 +60,15 @@ static void DYLoadAltListOnce(void) {
 }
 
 - (void)loadPrefs {
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
-    NSDictionary *enabled = dict[@"enabledApps"];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.ygxmm.dydebugkit"];
+    NSDictionary *enabled = [defaults objectForKey:@"enabledApps"];
     self.enabledApps = [enabled mutableCopy] ?: [NSMutableDictionary dictionary];
 }
 
 - (void)savePrefs {
     @try {
-        NSDictionary *d = @{ @"enabledApps": self.enabledApps ?: @{} };
-        [d writeToFile:kPrefsPath atomically:YES];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.ygxmm.dydebugkit"];
+        [defaults setObject:self.enabledApps ?: @{} forKey:@"enabledApps"]; [defaults synchronize];
         notify_post("com.ygxmm.dydebugkit/reload");
     } @catch (NSException *e) {}
     UIAlertController *alert =
