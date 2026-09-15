@@ -48,32 +48,23 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 BUNDLE_NAME = DYDebugKitPrefs
 
 DYDebugKitPrefs_FILES = \
-    DYDebugKitPrefs/RootListController.m
+    DYDebugKitPrefs/DYDebugKitRootListController.m
 
 DYDebugKitPrefs_FRAMEWORKS = UIKit Foundation
-
 DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
-
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
-# ============================================================
-# Logos
 # ============================================================
 export THEOS_STRICT_LOGOS = 0
 export ERROR_ON_WARNINGS = 0
 export LOGOS_DEFAULT_GENERATOR = internal
 
 # ============================================================
-# Clean
-# ============================================================
 clean::
 	@rm -rf .theos packages
 
-# ============================================================
-# Package Targets
-# ============================================================
 package-rootful::
 	@rm -rf .theos
 	@$(MAKE) all package DYDEBUGKIT_PACKAGE_SCHEME=rootful FINALPACKAGE=1
