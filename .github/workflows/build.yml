@@ -2,379 +2,28 @@ name: Build DYDebugKit
 
 on:
   push:
-    branches:
-      - main
-
+    branches: [ main ]
+  pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  build:
-    name: Build DYDebugKit
-    runs-on: macos-14
-
+  # ============================================================
+  # Rootful
+  # ============================================================
+  build-rootful:
+    runs-on: macos-latest
     steps:
-
-      # ============================================================
-      # Checkout
-      # ============================================================
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-
-      # ============================================================
-      # Xcode
-      # ============================================================
-
-      - name: Select Xcode
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "Xcode"
-          echo "================================"
-
-          XCODE="/Applications/Xcode_15.4.app/Contents/Developer"
-
-          if [ ! -d "$XCODE" ]; then
-            echo "Xcode 15.4 not found."
-
-            echo
-            echo "Available Xcode:"
-            ls -la /Applications | grep Xcode || true
-
-            exit 1
-          fi
-
-          sudo xcode-select --switch "$XCODE"
-
-          echo
-          echo "Developer:"
-          xcode-select -p
-
-          echo
-          echo "Version:"
-          xcodebuild -version
-
-
-      # ============================================================
-      # SDK
-      # ============================================================
-
-      - name: Check iOS SDK
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "iPhoneOS SDK"
-          echo "================================"
-
-          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
-          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
-
-          echo "SDK_PATH=$SDK_PATH"
-          echo "SDK_VERSION=$SDK_VERSION"
-
-          test -d "$SDK_PATH"
-
-
-      # ============================================================
-      # Dependencies
-      # ============================================================
-
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "Dependencies"
-          echo "================================"
-
-          brew update
-
-          brew install \
-            ldid \
-            dpkg \
-            perl \
-            coreutils
-
-          echo
-          echo "ldid:"
-          command -v ldid
-
-          echo
-          echo "dpkg:"
-          command -v dpkg
-
-          echo
-          echo "perl:"
-          command -v perl
-
-
-      # ============================================================
-      # Install Theos
-      # ============================================================
-
-      - name: Install Theos
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "Theos"
-          echo "================================"
-
-          export THEOS="$HOME/theos"
-
-          rm -rf "$THEOS"
-
-          git clone \
-            --depth=1 \
-            --recurse-submodules \
-            https://github.com/theos/theos.git \
-            "$THEOS"
-
-          cd "$THEOS"
-
-          git submodule update \
-            --init \
-            --recursive
-
-          echo
-          echo "Theos commit:"
-          git rev-parse HEAD
-
-          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
-          echo "$THEOS/bin" >> "$GITHUB_PATH"
-
-
-      # ============================================================
-      # Verify Theos
-      # ============================================================
-
-      - name: Verify Theos
-        shell: bash
-        run: |
-          set -e
-
-          export THEOS="$HOME/theos"
-
-          echo "================================"
-          echo "Verify Theos"
-          echo "================================"
-
-          test -f "$THEOS/makefiles/common.mk"
-          test -f "$THEOS/makefiles/tweak.mk"
-          test -f "$THEOS/makefiles/package.mk"
-
-          echo
-          echo "Theos:"
-          echo "$THEOS"
-
-
-      # ============================================================
-      # Configure SDK
-      # ============================================================
-
-      - name: Configure Theos SDK
-        shell: bash
-        run: |
-          set -e
-
-          export THEOS="$HOME/theos"
-
-          echo "================================"
-          echo "Configure SDK"
-          echo "================================"
-
-          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
-          SDK_NAME="$(basename "$SDK_PATH")"
-
-          echo "SDK_PATH=$SDK_PATH"
-          echo "SDK_NAME=$SDK_NAME"
-
-          mkdir -p "$THEOS/sdks"
-
-          rm -rf "$THEOS/sdks/$SDK_NAME"
-
-          ln -s \
-            "$SDK_PATH" \
-            "$THEOS/sdks/$SDK_NAME"
-
-          echo
-          echo "Theos SDK:"
-          find "$THEOS/sdks" \
-            -maxdepth 1 \
-            -print
-
-
-      # ============================================================
-      # Check project
-      # ============================================================
-
-      - name: Check project
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "Project"
-          echo "================================"
-
-          find . \
-            -maxdepth 3 \
-            -type f \
-            -not -path "./.git/*" \
-            | sort
-
-          echo
-          echo "Checking required files..."
-
-          test -f Makefile
-          test -f control
-          test -f DYDebugKit.plist
-
-          test -f Entry.xm
-
-          test -f DYDebugCapture.h
-          test -f DYDebugCapture.m
-
-          test -f DYDebugExport.h
-          test -f DYDebugExport.m
-
-          echo
-          echo "Project structure OK."
-
-
-      # ============================================================
-      # Validate control
-      # ============================================================
-
-      - name: Validate control
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "control"
-          echo "================================"
-
-          cat control
-
-          echo
-
-          grep -q "^Package:" control
-          grep -q "^Version:" control
-          grep -q "^Architecture:" control
-
-          VERSION="$(awk -F': *' '$1 == "Version" {print $2; exit}' control)"
-
-          if [ -z "$VERSION" ]; then
-            echo "ERROR: Version is empty."
-            exit 1
-          fi
-
-          echo
-          echo "Version=$VERSION"
-          echo "control OK."
-
-
-      # ============================================================
-      # Validate plist
-      # ============================================================
-
-      - name: Validate plist
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "DYDebugKit.plist"
-          echo "================================"
-
-          cat DYDebugKit.plist
-
-          echo
-
-          plutil -lint DYDebugKit.plist
-
-          echo
-          echo "plist OK."
-
-
-      # ============================================================
-      # Show Makefile
-      # ============================================================
-
-      - name: Validate Makefile
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "Makefile"
-          echo "================================"
-
-          cat Makefile
-
-          echo
-
-          grep -q "^TARGET =" Makefile
-          grep -q "^ARCHS =" Makefile
-          grep -q "^TWEAK_NAME = DYDebugKit" Makefile
-
-          grep -q "package-rootful" Makefile
-          grep -q "package-rootless" Makefile
-          grep -q "package-roothide" Makefile
-
-          echo
-          echo "Makefile OK."
-
-
-      # ============================================================
-      # Check RootHide support
-      # ============================================================
-
-      - name: Check RootHide Theos
-        shell: bash
-        run: |
-          set -e
-
-          export THEOS="$HOME/theos"
-
-          echo "================================"
-          echo "RootHide"
-          echo "================================"
-
-          if [ -d "$THEOS/vendor/mod/roothide" ]; then
-            echo "RootHide module found:"
-            echo "$THEOS/vendor/mod/roothide"
-
-          elif [ -d "$THEOS/vendor/lib/iphone/rootless" ]; then
-            echo "Rootless support found."
-
-          else
-            echo "RootHide scheme is not included in official Theos."
-            echo "RootHide package will be handled separately."
-          fi
-
-
-      # ============================================================
-      # Build Rootful
-      # ============================================================
+      - uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: theos/theos@master
+        with:
+          theos: ${{ github.workspace }}/theos
 
       - name: Build Rootful
-        shell: bash
         run: |
           set -e
-
-          export THEOS="$HOME/theos"
+          export THEOS="${{ github.workspace }}/theos"
           export PATH="$THEOS/bin:$PATH"
 
           echo "================================"
@@ -387,24 +36,36 @@ jobs:
 
           echo
           echo "Rootful packages:"
-
           find packages \
             -type f \
             -name "*.deb" \
             -print \
             | sort
 
+      - name: Upload Rootful deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYDebugKit-rootful
+          path: packages/*iphoneos-arm.deb
+          if-no-files-found: error
 
-      # ============================================================
-      # Build Rootless
-      # ============================================================
+  # ============================================================
+  # Rootless
+  # ============================================================
+  build-rootless:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: theos/theos@master
+        with:
+          theos: ${{ github.workspace }}/theos
 
       - name: Build Rootless
-        shell: bash
         run: |
           set -e
-
-          export THEOS="$HOME/theos"
+          export THEOS="${{ github.workspace }}/theos"
           export PATH="$THEOS/bin:$PATH"
 
           echo "================================"
@@ -417,71 +78,43 @@ jobs:
 
           echo
           echo "Rootless packages:"
-
           find packages \
             -type f \
             -name "*.deb" \
             -print \
             | sort
 
+      - name: Upload Rootless deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYDebugKit-rootless
+          path: packages/*iphoneos-arm64.deb
+          if-no-files-found: error
 
-      # ============================================================
-      # RootHide
-      # ============================================================
+  # ============================================================
+  # RootHide
+  # ============================================================
+  build-roothide:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Install RootHide Theos
-        shell: bash
-        continue-on-error: true
+      - name: Setup RootHide Theos
         run: |
           set -e
-
-          echo "================================"
-          echo "RootHide Theos"
-          echo "================================"
-
-          ROOTHIDE_THEOS="$HOME/theos-roothide"
-
-          rm -rf "$ROOTHIDE_THEOS"
-
-          git clone \
-            --depth=1 \
-            --recurse-submodules \
-            https://github.com/roothide/theos.git \
-            "$ROOTHIDE_THEOS"
-
-          cd "$ROOTHIDE_THEOS"
-
-          git submodule update \
-            --init \
-            --recursive
-
-          echo
-          echo "RootHide Theos:"
-          git rev-parse HEAD
-
-          echo "ROOTHIDE_THEOS=$ROOTHIDE_THEOS" >> "$GITHUB_ENV"
-
-
-      # ============================================================
-      # Build RootHide
-      # ============================================================
+          export ROOTHIDE_THEOS="${{ github.workspace }}/theos-roothide"
+          git clone --recursive https://github.com/roothide/theos.git "$ROOTHIDE_THEOS"
+          echo "ROOTHIDE_THEOS=$ROOTHIDE_THEOS" >> $GITHUB_ENV
 
       - name: Build RootHide
-        shell: bash
         run: |
           set -e
-
-          export THEOS="$HOME/theos-roothide"
+          export THEOS="${{ env.ROOTHIDE_THEOS }}"
           export PATH="$THEOS/bin:$PATH"
 
           echo "================================"
           echo "Build RootHide"
           echo "================================"
-
-          if [ ! -f "$THEOS/makefiles/common.mk" ]; then
-            echo "ERROR: RootHide Theos not available."
-            exit 1
-          fi
 
           rm -rf .theos
 
@@ -489,87 +122,15 @@ jobs:
 
           echo
           echo "RootHide packages:"
-
           find packages \
             -type f \
             -name "*.deb" \
             -print \
             | sort
 
-
-      # ============================================================
-      # List packages
-      # ============================================================
-
-      - name: List all DEB packages
-        shell: bash
-        run: |
-          set -e
-
-          echo "================================"
-          echo "Final Packages"
-          echo "================================"
-
-          if [ ! -d packages ]; then
-            echo "ERROR: packages directory does not exist."
-            exit 1
-          fi
-
-          find packages \
-            -type f \
-            -name "*.deb" \
-            -print \
-            | sort
-
-          COUNT="$(find packages \
-            -type f \
-            -name "*.deb" \
-            | wc -l | tr -d ' ')"
-
-          echo
-          echo "Package count: $COUNT"
-
-          if [ "$COUNT" -lt 2 ]; then
-            echo "ERROR: Expected at least Rootful + Rootless packages."
-            exit 1
-          fi
-
-
-      # ============================================================
-      # Upload
-      # ============================================================
-
-      - name: Upload Rootful
-        uses: actions/upload-artifact@v4
-        with:
-          name: DYDebugKit-rootful
-          path: packages/*rootful*.deb
-          if-no-files-found: error
-
-
-      - name: Upload Rootless
-        uses: actions/upload-artifact@v4
-        with:
-          name: DYDebugKit-rootless
-          path: packages/*rootless*.deb
-          if-no-files-found: error
-
-
-      - name: Upload RootHide
+      - name: Upload RootHide deb
         uses: actions/upload-artifact@v4
         with:
           name: DYDebugKit-roothide
-          path: packages/*roothide*.deb
-          if-no-files-found: warn
-
-
-      # ============================================================
-      # Upload all
-      # ============================================================
-
-      - name: Upload all packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: DYDebugKit-all-packages
-          path: packages/*.deb
+          path: packages/*iphoneos-arm64e.deb
           if-no-files-found: error
