@@ -77,13 +77,34 @@ DYDebugKitPrefs_FRAMEWORKS = \
     UIKit \
     Foundation
 
-# 关键：不链接 Preferences 框架（GitHub Actions SDK 里没有），
+# 关键：不链接 Preferences 框架（Theos SDK 里没有），
 # 让 PSListController / PSSpecifier 等符号在运行时由 Settings.app 提供
 DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
 include $(THEOS_MAKE_PATH)/bundle.mk
+
+# ============================================================
+# PreferenceLoader 入口 plist 安装
+#
+# rootless / roothide 越狱下，PreferenceLoader 只扫描
+# /var/jb/Library/PreferenceLoader/Preferences/
+# 而 layout/ 目录会被原样拷贝到 /Library/...，
+# 所以这里根据 scheme 手动拷贝到正确路径。
+# ============================================================
+after-stage::
+ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),rootful)
+	@echo ">>> Install PreferenceLoader plist (rootful)"
+	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences"
+	@cp -f "DYDebugKitPrefs/DYDebugKit.plist" \
+	    "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
+else
+	@echo ">>> Install PreferenceLoader plist ($(DYDEBUGKIT_PACKAGE_SCHEME))"
+	@mkdir -p "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences"
+	@cp -f "DYDebugKitPrefs/DYDebugKit.plist" \
+	    "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
+endif
 
 # ============================================================
 # Logos
