@@ -220,8 +220,8 @@ static NSData *DKZipEndRecords(uint64_t entryCount, uint64_t centralSize, uint64
         if (error) *error = DKZipError(-6, exception.reason ?: @"ZIP central directory write failed");
         return NO;
     }
-Offset    NSData *end = DKZipEndRecords(entryCount, centralSize,);
- central    @try {
+    NSData *end = DKZipEndRecords(entryCount, centralSize, centralOffset);
+    @try {
         [handle writeData:end];
     } @catch (NSException *exception) {
         [handle closeFile];
