@@ -1,6 +1,7 @@
 #import "DYDebugKitRootListController.h"
 #import <notify.h>
 #import <dlfcn.h>
+#import <mach-o/dyld.h>
 
 #define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
@@ -22,33 +23,47 @@
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *enabledApps;
 @property (nonatomic, strong) NSArray<NSDictionary *> *allApps;
 @property (nonatomic, strong) NSArray *cachedSpecifiers;
+@property (nonatomic, strong) NSString *diagInfo;
 @end
 
 @implementation DYDebugKitRootListController
 
-#pragma mark - AltList 动态加载
-
-static void DYLoadAltListIfNeeded(void) {
+static void DYLoadAltListIfNeeded(NSMutableArray *log) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        const char *paths[] = {
-            "/var/jb/Library/Frameworks/AltList.framework/AltList",
-            "/Library/Frameworks/AltList.framework/AltList",
-            NULL,
-        };
-        void *handle = NULL;
-        for (int i = 0; paths[i] != NULL; i++) {
-            handle = dlopen(paths[i], RTLD_LAZY | RTLD_GLOBAL);
-            if (handle) {
-                NSLog(@"[DYDebugKit] AltList loaded: %s", paths[i]);
-                break;
+        NSArray *paths = @[
+            @"/var/jb/Library/Frameworks/AltList.framework/AltList",
+            @"/Library/Frameworks/AltList.framework/AltList",
+        ];
+        // 再扫 roothide 的 .jbroot-* 目录
+        NSString *containers = @"/private/var/containers/Bundle/Application";
+        NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:containers error:nil];
+        for (NSString *d in dirs) {
+            if ([d hasPrefix:@".jbroot-"]) {
+                NSString *p = [containers stringByAppendingPathComponent:
+                               [d stringByAppendingString:@"/Library/Frameworks/AltList.framework/AltList"]];
+                paths = [paths arrayByAddingObject:p];
             }
-            NSLog(@"[DYDebugKit] AltList dlopen fail: %s", dlerror());
         }
+
+        BOOL loaded = NO;
+        for (NSString *p in paths) {
+            if (![[NSFileManager defaultManager] fileExistsAtPath:p]) {
+                [log addObject:[NSString stringWithFormat:@"X %@", p.lastPathComponent]];
+                continue;
+            }
+            void *h = dlopen(p.UTF8String, RTLD_LAZY | RTLD_GLOBAL);
+            if (h) {
+                [log addObject:[NSString stringWithFormat:@"OK %@", p]];
+                loaded = YES;
+                break;
+            } else {
+                [log addObject:[NSString stringWithFormat:@"FAIL %@", dlerror()]];
+            }
+        }
+        if (!loaded) [log addObject:@"AltList not loaded"];
     });
 }
-
-#pragma mark - Lifecycle
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -76,7 +91,7 @@ static void DYLoadAltListIfNeeded(void) {
     } @catch (NSException *e) {}
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
-                                           message:@"已保存，重启对应 App 后生效"
+                                           message:@"已保存"
                                     preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定"
                                               style:UIAlertActionStyleDefault
@@ -84,35 +99,39 @@ static void DYLoadAltListIfNeeded(void) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-#pragma mark - 枚举 App
-
 - (void)loadApps {
-    // 关键：先加载 AltList
-    DYLoadAltListIfNeeded();
-
+    NSMutableArray *log = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSString *> *dict = [NSMutableDictionary dictionary];
 
-    @try {
-        Class wsClass = NSClassFromString(@"LSApplicationWorkspace");
-        if (wsClass) {
-            id ws = [wsClass performSelector:@selector(defaultWorkspace)];
-            NSArray *proxies = nil;
+    DYLoadAltListIfNeeded(log);
 
-            if ([ws respondsToSelector:@selector(atl_allInstalledApplications)]) {
-                proxies = [ws performSelector:@selector(atl_allInstalledApplications)];
-                NSLog(@"[DYDebugKit] using AltList atl_allInstalledApplications: %lu",
-                      (unsigned long)proxies.count);
-            }
-            if (!proxies.count && [ws respondsToSelector:@selector(allInstalledApplications)]) {
-                proxies = [ws performSelector:@selector(allInstalledApplications)];
-                NSLog(@"[DYDebugKit] using allInstalledApplications: %lu",
-                      (unsigned long)proxies.count);
+    Class wsClass = NSClassFromString(@"LSApplicationWorkspace");
+    [log addObject:[NSString stringWithFormat:@"WS=%@", wsClass ? @"Y" : @"N"]];
+
+    if (wsClass) {
+        id ws = [wsClass performSelector:@selector(defaultWorkspace)];
+        [log addObject:[NSString stringWithFormat:@"ws=%@", ws ? @"Y" : @"N"]];
+
+        if (ws) {
+            BOOL hasAtl = [ws respondsToSelector:@selector(atl_allInstalledApplications)];
+            [log addObject:[NSString stringWithFormat:@"atl=%@", hasAtl ? @"Y" : @"N"]];
+
+            NSArray *proxies = nil;
+            if (hasAtl) {
+                @try {
+                    proxies = [ws performSelector:@selector(atl_allInstalledApplications)];
+                } @catch (NSException *e) {
+                    [log addObject:[NSString stringWithFormat:@"atl-err:%@", e.reason ?: @"?"]];
+                }
             }
             if (!proxies.count && [ws respondsToSelector:@selector(allApplications)]) {
-                proxies = [ws performSelector:@selector(allApplications)];
-                NSLog(@"[DYDebugKit] using allApplications: %lu",
-                      (unsigned long)proxies.count);
+                @try {
+                    proxies = [ws performSelector:@selector(allApplications)];
+                } @catch (NSException *e) {
+                    [log addObject:[NSString stringWithFormat:@"all-err:%@", e.reason ?: @"?"]];
+                }
             }
+            [log addObject:[NSString stringWithFormat:@"raw=%lu", (unsigned long)proxies.count]];
 
             for (id proxy in proxies) {
                 @try {
@@ -127,11 +146,8 @@ static void DYLoadAltListIfNeeded(void) {
                 } @catch (__unused NSException *e) {}
             }
         }
-    } @catch (NSException *e) {
-        NSLog(@"[DYDebugKit] workspace error: %@", e);
     }
 
-    // 目录扫描兜底
     if (dict.count == 0) {
         NSArray *roots = @[
             @"/var/containers/Bundle/Application",
@@ -140,7 +156,13 @@ static void DYLoadAltListIfNeeded(void) {
         ];
         NSFileManager *fm = [NSFileManager defaultManager];
         for (NSString *root in roots) {
+            if (![fm fileExistsAtPath:root]) {
+                [log addObject:[NSString stringWithFormat:@"X %@", root.lastPathComponent]];
+                continue;
+            }
             NSArray *items = [fm contentsOfDirectoryAtPath:root error:nil];
+            [log addObject:[NSString stringWithFormat:@"scan %@=%lu",
+                            root.lastPathComponent, (unsigned long)items.count]];
             for (NSString *item in items) {
                 @try {
                     NSString *appPath = nil;
@@ -169,7 +191,6 @@ static void DYLoadAltListIfNeeded(void) {
                 } @catch (__unused NSException *e) {}
             }
         }
-        NSLog(@"[DYDebugKit] after directory scan: %lu", (unsigned long)dict.count);
     }
 
     NSMutableArray<NSDictionary *> *list = [NSMutableArray array];
@@ -180,18 +201,17 @@ static void DYLoadAltListIfNeeded(void) {
         return [a[@"name"] localizedCompare:b[@"name"]];
     }];
     self.allApps = list;
-    NSLog(@"[DYDebugKit] total found %lu apps", (unsigned long)list.count);
+    [log addObject:[NSString stringWithFormat:@"total=%lu", (unsigned long)list.count]];
+    self.diagInfo = [log componentsJoinedByString:@" | "];
+    NSLog(@"[DYDebugKit] DIAG: %@", self.diagInfo);
 }
-
-#pragma mark - Specifiers
 
 - (NSArray *)specifiers {
     if (!self.cachedSpecifiers) {
         @try {
             NSMutableArray *specs = [NSMutableArray array];
             PSSpecifier *header = [PSSpecifier emptyGroupSpecifier];
-            header.name = [NSString stringWithFormat:@"共 %lu 个 App（系统已过滤）",
-                           (unsigned long)self.allApps.count];
+            header.name = self.diagInfo ?: @"诊断信息未生成";
             [specs addObject:header];
 
             for (NSDictionary *app in self.allApps) {
@@ -209,17 +229,8 @@ static void DYLoadAltListIfNeeded(void) {
                 [spec setProperty:bid forKey:@"bundleID"];
                 [specs addObject:spec];
             }
-
-            if (self.allApps.count == 0) {
-                PSSpecifier *empty =
-                    [PSSpecifier preferenceSpecifierNamed:@"未找到 App"
-                                                   target:nil set:nil get:nil
-                                                   detail:nil cell:PSGroupCell edit:nil];
-                [specs addObject:empty];
-            }
             self.cachedSpecifiers = [specs copy];
         } @catch (NSException *e) {
-            NSLog(@"[DYDebugKit] specifiers error: %@", e);
             self.cachedSpecifiers = @[];
         }
     }
