@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-
 <plist version="1.0">
 <dict>
-    <!-- 不写 Filter，Substrate 会注入所有进程。
-         Tweak 的 %ctor 里会判断 bundleID 是否在启用列表里。 -->
+    <key>Filter</key>
+    <dict>
+        <key>Bundles</key>
+        <array>
+            <string>net.colorfulclouds.app.pro</string>
+        </array>
+    </dict>
 </dict>
 </plist>
