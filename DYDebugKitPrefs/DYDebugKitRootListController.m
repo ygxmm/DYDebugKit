@@ -20,6 +20,7 @@
 @interface DYDebugKitRootListController ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *enabledApps;
 @property (nonatomic, strong) NSArray<NSDictionary *> *allApps;
+@property (nonatomic, strong) NSArray *cachedSpecifiers;
 @end
 
 @implementation DYDebugKitRootListController
@@ -60,16 +61,75 @@
 
 - (void)loadApps {
     NSMutableDictionary<NSString *, NSString *> *dict = [NSMutableDictionary dictionary];
-    NSArray *proxies = [self fetchApplicationProxies];
-    for (id proxy in proxies) {
-        @try {
-            NSString *bid = [self bundleIDFromProxy:proxy];
-            if (bid.length == 0) continue;
-            if ([bid hasPrefix:@"com.apple."]) continue;
-            NSString *name = [self displayNameFromProxy:proxy fallback:bid];
-            dict[bid] = name;
-        } @catch (NSException *e) {}
+
+    // 1. LSApplicationWorkspace
+    @try {
+        Class wsClass = NSClassFromString(@"LSApplicationWorkspace");
+        if (wsClass) {
+            id ws = [wsClass performSelector:@selector(defaultWorkspace)];
+            NSArray *proxies = nil;
+            if ([ws respondsToSelector:@selector(atl_allInstalledApplications)])
+                proxies = [ws performSelector:@selector(atl_allInstalledApplications)];
+            if (!proxies.count && [ws respondsToSelector:@selector(allInstalledApplications)])
+                proxies = [ws performSelector:@selector(allInstalledApplications)];
+            if (!proxies.count && [ws respondsToSelector:@selector(allApplications)])
+                proxies = [ws performSelector:@selector(allApplications)];
+
+            for (id proxy in proxies) {
+                @try {
+                    NSString *bid = [proxy performSelector:@selector(applicationIdentifier)];
+                    if (!bid.length) bid = [proxy performSelector:@selector(bundleIdentifier)];
+                    if (!bid.length) continue;
+                    if ([bid hasPrefix:@"com.apple."]) continue;
+                    NSString *name = [proxy performSelector:@selector(localizedName)];
+                    if (!name.length) name = [proxy performSelector:@selector(itemName)];
+                    if (!name.length) name = bid;
+                    dict[bid] = name;
+                } @catch (__unused NSException *e) {}
+            }
+        }
+    } @catch (NSException *e) {}
+
+    // 2. 目录扫描兜底
+    if (dict.count == 0) {
+        NSArray *roots = @[
+            @"/var/containers/Bundle/Application",
+            @"/private/var/containers/Bundle/Application",
+            @"/Applications",
+        ];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (NSString *root in roots) {
+            NSArray *items = [fm contentsOfDirectoryAtPath:root error:nil];
+            for (NSString *item in items) {
+                @try {
+                    NSString *appPath = nil;
+                    NSString *full = [root stringByAppendingPathComponent:item];
+                    if ([item hasSuffix:@".app"]) {
+                        appPath = full;
+                    } else {
+                        NSArray *subs = [fm contentsOfDirectoryAtPath:full error:nil];
+                        for (NSString *sub in subs) {
+                            if ([sub hasSuffix:@".app"]) {
+                                appPath = [full stringByAppendingPathComponent:sub];
+                                break;
+                            }
+                        }
+                    }
+                    if (!appPath) continue;
+                    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
+                                          [appPath stringByAppendingPathComponent:@"Info.plist"]];
+                    NSString *bid = info[@"CFBundleIdentifier"];
+                    if (!bid.length) continue;
+                    if ([bid hasPrefix:@"com.apple."]) continue;
+                    NSString *name = info[@"CFBundleDisplayName"]
+                                     ?: info[@"CFBundleName"]
+                                     ?: appPath.lastPathComponent;
+                    dict[bid] = name;
+                } @catch (__unused NSException *e) {}
+            }
+        }
     }
+
     NSMutableArray<NSDictionary *> *list = [NSMutableArray array];
     for (NSString *bid in dict) {
         [list addObject:@{ @"bundleID": bid, @"name": dict[bid] }];
@@ -81,109 +141,65 @@
     NSLog(@"[DYDebugKit] found %lu apps", (unsigned long)list.count);
 }
 
-- (NSArray *)fetchApplicationProxies {
-    Class wsClass = NSClassFromString(@"LSApplicationWorkspace");
-    if (wsClass == nil) return @[];
-    id ws = nil;
-    @try { ws = [wsClass performSelector:@selector(defaultWorkspace)]; }
-    @catch (NSException *e) {}
-    if (ws == nil) return @[];
-    if ([ws respondsToSelector:@selector(atl_allInstalledApplications)]) {
-        @try {
-            NSArray *arr = [ws performSelector:@selector(atl_allInstalledApplications)];
-            if (arr.count) return arr;
-        } @catch (NSException *e) {}
-    }
-    if ([ws respondsToSelector:@selector(allInstalledApplications)]) {
-        @try {
-            NSArray *arr = [ws performSelector:@selector(allInstalledApplications)];
-            if (arr.count) return arr;
-        } @catch (NSException *e) {}
-    }
-    if ([ws respondsToSelector:@selector(allApplications)]) {
-        @try {
-            NSArray *arr = [ws performSelector:@selector(allApplications)];
-            if (arr.count) return arr;
-        } @catch (NSException *e) {}
-    }
-    return @[];
-}
-
-- (NSString *)bundleIDFromProxy:(id)proxy {
-    NSString *bid = nil;
-    @try { if ([proxy respondsToSelector:@selector(applicationIdentifier)])
-        bid = [proxy performSelector:@selector(applicationIdentifier)]; }
-    @catch (__unused NSException *e) {}
-    if (bid.length == 0) {
-        @try { if ([proxy respondsToSelector:@selector(bundleIdentifier)])
-            bid = [proxy performSelector:@selector(bundleIdentifier)]; }
-        @catch (__unused NSException *e) {}
-    }
-    return bid;
-}
-
-- (NSString *)displayNameFromProxy:(id)proxy fallback:(NSString *)fallback {
-    NSString *name = nil;
-    @try { if ([proxy respondsToSelector:@selector(localizedName)])
-        name = [proxy performSelector:@selector(localizedName)]; }
-    @catch (__unused NSException *e) {}
-    if (name.length == 0) {
-        @try { if ([proxy respondsToSelector:@selector(itemName)])
-            name = [proxy performSelector:@selector(itemName)]; }
-        @catch (__unused NSException *e) {}
-    }
-    if (name.length == 0) name = fallback;
-    return name;
-}
-
 - (NSArray *)specifiers {
-    if (!_specifiers) {
+    if (!self.cachedSpecifiers) {
         @try {
             NSMutableArray *specs = [NSMutableArray array];
             PSSpecifier *header = [PSSpecifier emptyGroupSpecifier];
             header.name = [NSString stringWithFormat:@"共 %lu 个 App（系统已过滤）",
                            (unsigned long)self.allApps.count];
             [specs addObject:header];
+
             for (NSDictionary *app in self.allApps) {
                 NSString *bid = app[@"bundleID"] ?: @"";
                 NSString *name = app[@"name"] ?: bid;
-                if (name.length == 0) name = @"Unknown";
+                if (!name.length) name = @"Unknown";
+
                 PSSpecifier *spec =
                     [PSSpecifier preferenceSpecifierNamed:name
                                                   target:self
-                                                     set:@selector(setValue:forSpecifier:)
-                                                     get:@selector(getValue:)
+                                                     set:@selector(dy_setValue:forSpecifier:)
+                                                     get:@selector(dy_getValue:)
                                                   detail:nil
                                                     cell:PSSwitchCell
                                                     edit:nil];
                 [spec setProperty:bid forKey:@"bundleID"];
                 [specs addObject:spec];
             }
+
             if (self.allApps.count == 0) {
                 PSSpecifier *empty =
                     [PSSpecifier preferenceSpecifierNamed:@"未找到 App"
                                                    target:nil set:nil get:nil
-                                                   detail:nil cell:PSStaticTextCell edit:nil];
+                                                   detail:nil cell:PSGroupCell edit:nil];
                 [specs addObject:empty];
             }
-            _specifiers = specs;
+
+            self.cachedSpecifiers = [specs copy];
         } @catch (NSException *e) {
-            _specifiers = [NSMutableArray array];
+            NSLog(@"[DYDebugKit] specifiers error: %@", e);
+            self.cachedSpecifiers = @[];
         }
     }
-    return _specifiers;
+    return self.cachedSpecifiers;
 }
 
-- (id)getValue:(PSSpecifier *)spec {
+- (id)dy_getValue:(PSSpecifier *)spec {
     NSString *bid = [spec propertyForKey:@"bundleID"];
     if (!bid) return @NO;
     return @([self.enabledApps[bid] boolValue]);
 }
 
-- (void)setValue:(id)value forSpecifier:(PSSpecifier *)spec {
+- (void)dy_setValue:(id)value forSpecifier:(PSSpecifier *)spec {
     NSString *bid = [spec propertyForKey:@"bundleID"];
     if (!bid) return;
     self.enabledApps[bid] = @([value boolValue]);
+}
+
+- (void)dealloc {
+    self.cachedSpecifiers = nil;
+    self.allApps = nil;
+    self.enabledApps = nil;
 }
 
 @end
