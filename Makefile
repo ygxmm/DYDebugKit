@@ -44,17 +44,17 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 # ============================================================
 # PreferenceBundle
+#   ★ 用通配符 *.m，不用管文件叫什么名字
 # ============================================================
 BUNDLE_NAME = DYDebugKitPrefs
 
-DYDebugKitPrefs_FILES = \
-    DYDebugKitPrefs/RootListController.m
+DYDebugKitPrefs_FILES = $(wildcard DYDebugKitPrefs/*.m)
 
 DYDebugKitPrefs_FRAMEWORKS = UIKit Foundation
 DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
-# ★★★ 关键一行：把 Info.plist 打进 bundle ★★★
+# ★ 关键：把 Info.plist 打进 bundle
 DYDebugKitPrefs_RESOURCE_FILES = \
     DYDebugKitPrefs/Info.plist
 
