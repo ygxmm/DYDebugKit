@@ -1,8 +1,27 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <notify.h>
 
 #import "DYDebugCapture.h"
 #import "DYDebugExport.h"
+
+#pragma mark - 是否启用当前 App
+
+#define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
+
+static BOOL DYIsCurrentAppEnabled(void) {
+    NSString *bid = [NSBundle mainBundle].bundleIdentifier;
+    if (bid.length == 0) return NO;
+
+    // 系统守护进程不加载
+    if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
+
+    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
+    NSDictionary *enabled = dict[@"enabledApps"];
+    if (![enabled isKindOfClass:NSDictionary.class]) return NO;
+
+    return [enabled[bid] boolValue];
+}
 
 #pragma mark - Forward
 
@@ -135,7 +154,6 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:zipName];
 
-    // 清理中间目录，只留 zip
     NSString *workDirName = [zipName stringByReplacingOccurrencesOfString:@".zip" withString:@""];
     NSString *workDir = [NSTemporaryDirectory() stringByAppendingPathComponent:workDirName];
     [[NSFileManager defaultManager] removeItemAtPath:workDir error:nil];
@@ -215,19 +233,11 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     DYDebugOverlayController *controller =
         (DYDebugOverlayController *)self.rootViewController;
 
-    if (controller == nil) {
-        return NO;
-    }
+    if (controller == nil) return NO;
 
-    // 关键：只要有 presented 控制器（Alert / ActionSheet / 分享面板），
-    // 整个 window 都要接收触摸，否则弹窗上的按钮点不动
-    if (controller.presentedViewController != nil) {
-        return YES;
-    }
+    if (controller.presentedViewController != nil) return YES;
 
-    if (controller.button == nil) {
-        return NO;
-    }
+    if (controller.button == nil) return NO;
 
     CGPoint local = [self convertPoint:p toView:controller.button];
     return [controller.button pointInside:local withEvent:event];
@@ -242,31 +252,21 @@ static UIWindowScene *DYDebugForegroundWindowScene(void) {
         UIApplication *application = UIApplication.sharedApplication;
 
         for (UIScene *scene in application.connectedScenes) {
-            if (scene.activationState != UISceneActivationStateForegroundActive) {
-                continue;
-            }
-
-            if (![scene isKindOfClass:UIWindowScene.class]) {
-                continue;
-            }
-
+            if (scene.activationState != UISceneActivationStateForegroundActive) continue;
+            if (![scene isKindOfClass:UIWindowScene.class]) continue;
             return (UIWindowScene *)scene;
         }
     }
-
     return nil;
 }
 
 static void DYShowOverlay(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (gWindow != nil && gWindow.windowScene != nil && !gWindow.hidden) {
-            return;
-        }
+        if (gWindow != nil && gWindow.windowScene != nil && !gWindow.hidden) return;
 
         UIWindowScene *scene = DYDebugForegroundWindowScene();
 
         if (scene == nil) {
-            NSLog(@"[DYDebugKit] No foreground scene, retry...");
             dispatch_after(
                 dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
                 dispatch_get_main_queue(),
@@ -284,7 +284,7 @@ static void DYShowOverlay(void) {
         gWindow.rootViewController = [DYDebugOverlayController new];
         gWindow.hidden = NO;
 
-        NSLog(@"[DYDebugKit] Overlay shown on scene: %@", scene);
+        NSLog(@"[DYDebugKit] Overlay shown");
     });
 }
 
@@ -307,11 +307,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 @implementation DYDebugActivator
 
 + (void)handle:(UILongPressGestureRecognizer *)gesture {
-    if (gesture.state != UIGestureRecognizerStateBegan) {
-        return;
-    }
-
-    NSLog(@"[DYDebugKit] Two-finger long press detected");
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
     DYShowOverlay();
 }
 
@@ -320,15 +316,11 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 #pragma mark - Install Gesture
 
 static BOOL DYWindowAlreadyAttached(UIWindow *window) {
-    if (window == nil) {
-        return YES;
-    }
-
+    if (window == nil) return YES;
     if (gAttachedWindows == nil) {
         gAttachedWindows = [NSHashTable weakObjectsHashTable];
         return NO;
     }
-
     return [gAttachedWindows containsObject:window];
 }
 
@@ -362,12 +354,7 @@ static void DYInstallActivatorOnWindow(UIWindow *window) {
     if (gAttachedWindows == nil) {
         gAttachedWindows = [NSHashTable weakObjectsHashTable];
     }
-
     [gAttachedWindows addObject:window];
-
-    NSLog(@"[DYDebugKit] Activator attached to window: %@ level=%f",
-          NSStringFromClass(window.class),
-          window.windowLevel);
 }
 
 #pragma mark - Attach All Windows
@@ -375,42 +362,28 @@ static void DYInstallActivatorOnWindow(UIWindow *window) {
 static void DYAttachToCurrentWindows(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIApplication *application = UIApplication.sharedApplication;
-        NSUInteger count = 0;
 
         if (@available(iOS 13.0, *)) {
             for (UIScene *scene in application.connectedScenes) {
-                if (scene.activationState != UISceneActivationStateForegroundActive) {
-                    continue;
-                }
-
-                if (![scene isKindOfClass:UIWindowScene.class]) {
-                    continue;
-                }
-
+                if (scene.activationState != UISceneActivationStateForegroundActive) continue;
+                if (![scene isKindOfClass:UIWindowScene.class]) continue;
                 UIWindowScene *windowScene = (UIWindowScene *)scene;
-
                 for (UIWindow *window in windowScene.windows) {
                     DYInstallActivatorOnWindow(window);
-                    count++;
                 }
             }
         } else {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
             for (UIWindow *window in application.windows) {
                 DYInstallActivatorOnWindow(window);
-                count++;
             }
-
 #pragma clang diagnostic pop
         }
-
-        NSLog(@"[DYDebugKit] Window scan completed: %lu", (unsigned long)count);
     });
 }
 
-#pragma mark - Periodic Window Scan
+#pragma mark - Periodic Scan
 
 static void DYScanWindowsPeriodically(void) {
     DYAttachToCurrentWindows();
@@ -424,18 +397,18 @@ static void DYScanWindowsPeriodically(void) {
     );
 }
 
-static void DYStartWindowMonitor(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        DYScanWindowsPeriodically();
-    });
-}
-
 #pragma mark - Constructor
 
 %ctor {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[DYDebugKit] Loaded");
+    // 关键：先判断当前 App 是否被启用
+    if (!DYIsCurrentAppEnabled()) {
+        NSLog(@"[DYDebugKit] Not enabled for %@", [NSBundle mainBundle].bundleIdentifier);
+        return;
+    }
 
+    NSLog(@"[DYDebugKit] Enabled for %@", [NSBundle mainBundle].bundleIdentifier);
+
+    dispatch_async(dispatch_get_main_queue(), ^{
         DYAttachToCurrentWindows();
 
         [[NSNotificationCenter defaultCenter]
@@ -444,9 +417,7 @@ static void DYStartWindowMonitor(void) {
                          queue:[NSOperationQueue mainQueue]
                     usingBlock:^(NSNotification *note) {
                         UIWindow *window = note.object;
-                        if (![window isKindOfClass:UIWindow.class]) {
-                            return;
-                        }
+                        if (![window isKindOfClass:UIWindow.class]) return;
                         DYInstallActivatorOnWindow(window);
                     }];
 
@@ -456,9 +427,7 @@ static void DYStartWindowMonitor(void) {
                          queue:[NSOperationQueue mainQueue]
                     usingBlock:^(NSNotification *note) {
                         UIWindow *window = note.object;
-                        if (![window isKindOfClass:UIWindow.class]) {
-                            return;
-                        }
+                        if (![window isKindOfClass:UIWindow.class]) return;
                         DYInstallActivatorOnWindow(window);
                     }];
 
@@ -489,7 +458,7 @@ static void DYStartWindowMonitor(void) {
                         DYShowOverlay();
                     }];
 
-        DYStartWindowMonitor();
+        DYScanWindowsPeriodically();
 
         dispatch_after(
             dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
