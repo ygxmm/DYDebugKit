@@ -169,20 +169,27 @@ static UIWindowScene *DYDebugForegroundWindowScene(void) {
 
 static void DYShowOverlay(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (gWindow != nil && !gWindow.hidden) {
+        // 已经成功创建并且绑定了 scene，就不再重复创建
+        if (gWindow != nil && gWindow.windowScene != nil && !gWindow.hidden) {
             return;
         }
 
         UIWindowScene *scene = DYDebugForegroundWindowScene();
 
-        if (scene != nil) {
-            NSLog(@"[DYDebugKit] Found scene: %@", scene);
-            gWindow = [[DYDebugOverlayWindow alloc] initWithWindowScene:scene];
-        } else {
-            NSLog(@"[DYDebugKit] No scene found, using mainScreen bounds");
-            gWindow = [[DYDebugOverlayWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+        // iOS 13+ 必须拿到 scene 才能创建可见窗口，拿不到就延迟重试
+        if (scene == nil) {
+            NSLog(@"[DYDebugKit] No foreground scene, retry...");
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(),
+                ^{
+                    DYShowOverlay();
+                }
+            );
+            return;
         }
 
+        gWindow = [[DYDebugOverlayWindow alloc] initWithWindowScene:scene];
         gWindow.backgroundColor = UIColor.clearColor;
         gWindow.opaque = NO;
 
@@ -195,7 +202,7 @@ static void DYShowOverlay(void) {
         gWindow.rootViewController = [DYDebugOverlayController new];
         gWindow.hidden = NO;
 
-        NSLog(@"[DYDebugKit] Overlay shown");
+        NSLog(@"[DYDebugKit] Overlay shown on scene: %@", scene);
     });
 }
 
@@ -461,6 +468,7 @@ static void DYStartWindowMonitor(void) {
                          queue:[NSOperationQueue mainQueue]
                     usingBlock:^(__unused NSNotification *note) {
                         DYAttachToCurrentWindows();
+                        DYShowOverlay();   // 激活后尝试显示浮窗
                     }];
 
         /*
@@ -469,9 +477,15 @@ static void DYStartWindowMonitor(void) {
         DYStartWindowMonitor();
 
         /*
-         * 临时测试：启动后立即显示浮窗。
-         * 测试完成后请删除此行，恢复双指长按触发。
+         * 延迟 1 秒自动显示一次浮窗，方便确认插件已生效。
+         * 如果不希望自动显示，可以删掉下面这段 dispatch_after。
          */
-        DYShowOverlay();
+        dispatch_after(
+            dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+            dispatch_get_main_queue(),
+            ^{
+                DYShowOverlay();
+            }
+        );
     });
 }
