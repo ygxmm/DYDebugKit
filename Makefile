@@ -67,11 +67,12 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 # ============================================================
 # PreferenceBundle
+#   注意：源文件夹名是 DYDebugKitPrefs（与 BUNDLE_NAME 一致）
 # ============================================================
 BUNDLE_NAME = DYDebugKitPrefs
 
 DYDebugKitPrefs_FILES = \
-    DYDebugPrefs/RootListController.m
+    DYDebugKitPrefs/RootListController.m
 
 DYDebugKitPrefs_FRAMEWORKS = \
     UIKit \
@@ -84,28 +85,24 @@ DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
 include $(THEOS_MAKE_PATH)/bundle.mk
 
 # ============================================================
-# 关键：把 Info.plist 和入口 plist 都 stage 进去
-#
-# 无论什么 scheme，两种路径都拷贝一份：
-#   - /Library/...          给 rootful 用
-#   - /var/jb/Library/...   给 rootless / roothide 用
-# 多出的路径是空目录，不会有副作用。
+# 把 Info.plist 和 PreferenceLoader 入口 plist stage 进去
+#   两种 scheme 的路径都拷贝一份，避免 rootless/roothide 找不到
 # ============================================================
 after-stage::
 	@echo ">>> Stage PreferenceBundle Info.plist"
 	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/DYDebugKitPrefs.bundle"
 	@mkdir -p "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceBundles/DYDebugKitPrefs.bundle"
-	@cp -f "DYDebugPrefs/Info.plist" \
+	@cp -f "DYDebugKitPrefs/Info.plist" \
 	    "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/DYDebugKitPrefs.bundle/Info.plist"
-	@cp -f "DYDebugPrefs/Info.plist" \
+	@cp -f "DYDebugKitPrefs/Info.plist" \
 	    "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceBundles/DYDebugKitPrefs.bundle/Info.plist"
 
 	@echo ">>> Stage PreferenceLoader entry plist"
 	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences"
 	@mkdir -p "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences"
-	@cp -f "DYDebugPrefs/DYDebugKit.plist" \
+	@cp -f "DYDebugKitPrefs/DYDebugKit.plist" \
 	    "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
-	@cp -f "DYDebugPrefs/DYDebugKit.plist" \
+	@cp -f "DYDebugKitPrefs/DYDebugKit.plist" \
 	    "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
 
 # ============================================================
