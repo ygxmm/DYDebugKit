@@ -1,0 +1,9 @@
+{
+    entry = {
+        bundle = "DYDebugKitPrefs";
+        cell = PSLinkCell;
+        detail = "RootListController";
+        icon = "icon.png";
+        label = "DYDebugKit";
+    };
+}
