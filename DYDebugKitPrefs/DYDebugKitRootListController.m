@@ -58,7 +58,7 @@ static void DYLoadAltListIfNeeded(NSMutableArray *log) {
                 loaded = YES;
                 break;
             } else {
-                [log addObject:[NSString stringWithFormat:@"FAIL %@", dlerror()]];
+                [log addObject:[NSString stringWithFormat:@"FAIL %s", dlerror()]];
             }
         }
         if (!loaded) [log addObject:@"AltList not loaded"];
