@@ -20,16 +20,7 @@
 #pragma mark - Globals
 
 static DYDebugOverlayWindow *gWindow = nil;
-
-/*
- * 使用 weakObjectsHashTable 保存已经安装过的 Window。
- * 多 Scene / 多 Window 环境下避免重复添加手势。
- */
 static NSHashTable<UIWindow *> *gAttachedWindows = nil;
-
-/*
- * 手势代理，允许与其他手势同时识别。
- */
 static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
 #pragma mark - Overlay Controller
@@ -69,7 +60,6 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 }
 
 - (void)debugTapped {
-    // 防止 Alert 叠加
     if (self.presentedViewController != nil) {
         return;
     }
@@ -93,7 +83,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     NSString *message = nil;
     if (success) {
-        message = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit"];
+        message = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit.zip"];
         NSLog(@"[DYDebugKit] Export succeeded: %@", message);
     } else {
         message = error.localizedDescription ?: @"导出失败";
@@ -103,7 +93,6 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     [self showResult:message];
 }
 
-// 统一显示提示，并在关闭后恢复 overlay window 的 key 状态
 - (void)showResult:(NSString *)message {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
@@ -113,8 +102,6 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     [alert addAction:[UIAlertAction actionWithTitle:@"确定"
                                               style:UIAlertActionStyleCancel
                                             handler:^(UIAlertAction *action) {
-        // 关键：alert 关闭后，重新把 overlay window 设为 key，
-        // 否则浮窗按钮会收不到触摸事件
         dispatch_async(dispatch_get_main_queue(), ^{
             if (gWindow != nil && !gWindow.hidden) {
                 [gWindow makeKeyWindow];
@@ -171,14 +158,12 @@ static UIWindowScene *DYDebugForegroundWindowScene(void) {
 
 static void DYShowOverlay(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        // 已经成功创建并且绑定了 scene，就不再重复创建
         if (gWindow != nil && gWindow.windowScene != nil && !gWindow.hidden) {
             return;
         }
 
         UIWindowScene *scene = DYDebugForegroundWindowScene();
 
-        // iOS 13+ 必须拿到 scene 才能创建可见窗口，拿不到就延迟重试
         if (scene == nil) {
             NSLog(@"[DYDebugKit] No foreground scene, retry...");
             dispatch_after(
@@ -194,12 +179,6 @@ static void DYShowOverlay(void) {
         gWindow = [[DYDebugOverlayWindow alloc] initWithWindowScene:scene];
         gWindow.backgroundColor = UIColor.clearColor;
         gWindow.opaque = NO;
-
-        /*
-         * 只让浮窗自身可见。
-         * pointInside: 已经限制了实际触摸区域，
-         * 所以不会覆盖整个 App 的触摸。
-         */
         gWindow.windowLevel = UIWindowLevelAlert + 100.0;
         gWindow.rootViewController = [DYDebugOverlayController new];
         gWindow.hidden = NO;
@@ -253,65 +232,25 @@ static BOOL DYWindowAlreadyAttached(UIWindow *window) {
 }
 
 static void DYInstallActivatorOnWindow(UIWindow *window) {
-    if (window == nil) {
-        return;
-    }
-
-    /*
-     * 不安装到自己的 Overlay Window。
-     */
-    if (window == gWindow) {
-        return;
-    }
-
-    /*
-     * 不处理隐藏 Window。
-     */
-    if (window.hidden) {
-        return;
-    }
-
-    /*
-     * alpha 为 0 的 Window 不参与。
-     */
-    if (window.alpha <= 0.0) {
-        return;
-    }
-
-    /*
-     * 放宽限制：只排除明显高于 normal 的系统窗口（如键盘、Alert）。
-     */
-    if (window.windowLevel > UIWindowLevelNormal + 1.0) {
-        return;
-    }
-
-    if (DYWindowAlreadyAttached(window)) {
-        return;
-    }
+    if (window == nil) return;
+    if (window == gWindow) return;
+    if (window.hidden) return;
+    if (window.alpha <= 0.0) return;
+    if (window.windowLevel > UIWindowLevelNormal + 1.0) return;
+    if (DYWindowAlreadyAttached(window)) return;
 
     UILongPressGestureRecognizer *gesture =
         [[UILongPressGestureRecognizer alloc]
             initWithTarget:[DYDebugActivator class]
                     action:@selector(handle:)];
 
-    /*
-     * 双指长按。
-     * 1.5 秒更易触发。
-     */
     gesture.minimumPressDuration = 1.5;
     gesture.numberOfTouchesRequired = 2;
     gesture.numberOfTapsRequired = 0;
-
-    /*
-     * 不主动取消 App 原来的触摸。
-     */
     gesture.cancelsTouchesInView = NO;
     gesture.delaysTouchesBegan = NO;
     gesture.delaysTouchesEnded = NO;
 
-    /*
-     * 允许与其他手势同时识别，避免冲突。
-     */
     if (gGestureDelegate == nil) {
         gGestureDelegate = [DYGestureDelegate new];
     }
@@ -337,10 +276,6 @@ static void DYAttachToCurrentWindows(void) {
         UIApplication *application = UIApplication.sharedApplication;
         NSUInteger count = 0;
 
-        /*
-         * iOS 13+
-         * 一个 App 可以存在多个 UIWindowScene。
-         */
         if (@available(iOS 13.0, *)) {
             for (UIScene *scene in application.connectedScenes) {
                 if (scene.activationState != UISceneActivationStateForegroundActive) {
@@ -390,7 +325,6 @@ static void DYScanWindowsPeriodically(void) {
 
 static void DYStartWindowMonitor(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        // 立即开始扫描并进入循环
         DYScanWindowsPeriodically();
     });
 }
@@ -401,14 +335,8 @@ static void DYStartWindowMonitor(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         NSLog(@"[DYDebugKit] Loaded");
 
-        /*
-         * 初始扫描。
-         */
         DYAttachToCurrentWindows();
 
-        /*
-         * Window 成为 Key。
-         */
         [[NSNotificationCenter defaultCenter]
             addObserverForName:UIWindowDidBecomeKeyNotification
                         object:nil
@@ -421,9 +349,6 @@ static void DYStartWindowMonitor(void) {
                         DYInstallActivatorOnWindow(window);
                     }];
 
-        /*
-         * Window 显示。
-         */
         [[NSNotificationCenter defaultCenter]
             addObserverForName:UIWindowDidBecomeVisibleNotification
                         object:nil
@@ -436,9 +361,6 @@ static void DYStartWindowMonitor(void) {
                         DYInstallActivatorOnWindow(window);
                     }];
 
-        /*
-         * Scene 激活。
-         */
         if (@available(iOS 13.0, *)) {
             [[NSNotificationCenter defaultCenter]
                 addObserverForName:UISceneDidActivateNotification
@@ -448,10 +370,6 @@ static void DYStartWindowMonitor(void) {
                             DYAttachToCurrentWindows();
                         }];
 
-            /*
-             * Scene 连接。
-             * 使用字符串字面量以避免旧 SDK 缺少常量声明。
-             */
             [[NSNotificationCenter defaultCenter]
                 addObserverForName:@"UISceneDidConnectNotification"
                             object:nil
@@ -461,27 +379,17 @@ static void DYStartWindowMonitor(void) {
                         }];
         }
 
-        /*
-         * App 从后台回来时再次扫描。
-         */
         [[NSNotificationCenter defaultCenter]
             addObserverForName:UIApplicationDidBecomeActiveNotification
                         object:nil
                          queue:[NSOperationQueue mainQueue]
                     usingBlock:^(__unused NSNotification *note) {
                         DYAttachToCurrentWindows();
-                        DYShowOverlay();   // 激活后尝试显示浮窗
+                        DYShowOverlay();
                     }];
 
-        /*
-         * 处理某些 App 延迟创建 Window 的情况。
-         */
         DYStartWindowMonitor();
 
-        /*
-         * 延迟 1 秒自动显示一次浮窗，方便确认插件已生效。
-         * 如果不希望自动显示，可以删掉下面这段 dispatch_after。
-         */
         dispatch_after(
             dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
             dispatch_get_main_queue(),
