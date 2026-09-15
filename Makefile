@@ -71,14 +71,12 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 BUNDLE_NAME = DYDebugKitPrefs
 
 DYDebugKitPrefs_FILES = \
-    DYDebugKitPrefs/RootListController.m
+    DYDebugPrefs/RootListController.m
 
 DYDebugKitPrefs_FRAMEWORKS = \
     UIKit \
     Foundation
 
-# 关键：不链接 Preferences 框架（Theos SDK 里没有），
-# 让 PSListController / PSSpecifier 等符号在运行时由 Settings.app 提供
 DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
@@ -86,25 +84,29 @@ DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
 include $(THEOS_MAKE_PATH)/bundle.mk
 
 # ============================================================
-# PreferenceLoader 入口 plist 安装
+# 关键：把 Info.plist 和入口 plist 都 stage 进去
 #
-# rootless / roothide 越狱下，PreferenceLoader 只扫描
-# /var/jb/Library/PreferenceLoader/Preferences/
-# 而 layout/ 目录会被原样拷贝到 /Library/...，
-# 所以这里根据 scheme 手动拷贝到正确路径。
+# 无论什么 scheme，两种路径都拷贝一份：
+#   - /Library/...          给 rootful 用
+#   - /var/jb/Library/...   给 rootless / roothide 用
+# 多出的路径是空目录，不会有副作用。
 # ============================================================
 after-stage::
-ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),rootful)
-	@echo ">>> Install PreferenceLoader plist (rootful)"
+	@echo ">>> Stage PreferenceBundle Info.plist"
+	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/DYDebugKitPrefs.bundle"
+	@mkdir -p "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceBundles/DYDebugKitPrefs.bundle"
+	@cp -f "DYDebugPrefs/Info.plist" \
+	    "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/DYDebugKitPrefs.bundle/Info.plist"
+	@cp -f "DYDebugPrefs/Info.plist" \
+	    "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceBundles/DYDebugKitPrefs.bundle/Info.plist"
+
+	@echo ">>> Stage PreferenceLoader entry plist"
 	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences"
-	@cp -f "DYDebugKitPrefs/DYDebugKit.plist" \
-	    "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
-else
-	@echo ">>> Install PreferenceLoader plist ($(DYDEBUGKIT_PACKAGE_SCHEME))"
 	@mkdir -p "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences"
-	@cp -f "DYDebugKitPrefs/DYDebugKit.plist" \
+	@cp -f "DYDebugPrefs/DYDebugKit.plist" \
+	    "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
+	@cp -f "DYDebugPrefs/DYDebugKit.plist" \
 	    "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
-endif
 
 # ============================================================
 # Logos
