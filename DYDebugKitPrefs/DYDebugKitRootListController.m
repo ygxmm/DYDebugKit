@@ -1,5 +1,6 @@
 #import "DYDebugKitRootListController.h"
 #import <notify.h>
+#import <dlfcn.h>
 
 #define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
@@ -25,6 +26,30 @@
 
 @implementation DYDebugKitRootListController
 
+#pragma mark - AltList 动态加载
+
+static void DYLoadAltListIfNeeded(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        const char *paths[] = {
+            "/var/jb/Library/Frameworks/AltList.framework/AltList",
+            "/Library/Frameworks/AltList.framework/AltList",
+            NULL,
+        };
+        void *handle = NULL;
+        for (int i = 0; paths[i] != NULL; i++) {
+            handle = dlopen(paths[i], RTLD_LAZY | RTLD_GLOBAL);
+            if (handle) {
+                NSLog(@"[DYDebugKit] AltList loaded: %s", paths[i]);
+                break;
+            }
+            NSLog(@"[DYDebugKit] AltList dlopen fail: %s", dlerror());
+        }
+    });
+}
+
+#pragma mark - Lifecycle
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"DYDebugKit";
@@ -45,8 +70,8 @@
 
 - (void)savePrefs {
     @try {
-        NSDictionary *dict = @{ @"enabledApps": self.enabledApps ?: @{} };
-        [dict writeToFile:kPrefsPath atomically:YES];
+        NSDictionary *d = @{ @"enabledApps": self.enabledApps ?: @{} };
+        [d writeToFile:kPrefsPath atomically:YES];
         notify_post("com.ygxmm.dydebugkit/reload");
     } @catch (NSException *e) {}
     UIAlertController *alert =
@@ -59,21 +84,35 @@
     [self presentViewController:alert animated:YES completion:nil];
 }
 
+#pragma mark - 枚举 App
+
 - (void)loadApps {
+    // 关键：先加载 AltList
+    DYLoadAltListIfNeeded();
+
     NSMutableDictionary<NSString *, NSString *> *dict = [NSMutableDictionary dictionary];
 
-    // 1. LSApplicationWorkspace
     @try {
         Class wsClass = NSClassFromString(@"LSApplicationWorkspace");
         if (wsClass) {
             id ws = [wsClass performSelector:@selector(defaultWorkspace)];
             NSArray *proxies = nil;
-            if ([ws respondsToSelector:@selector(atl_allInstalledApplications)])
+
+            if ([ws respondsToSelector:@selector(atl_allInstalledApplications)]) {
                 proxies = [ws performSelector:@selector(atl_allInstalledApplications)];
-            if (!proxies.count && [ws respondsToSelector:@selector(allInstalledApplications)])
+                NSLog(@"[DYDebugKit] using AltList atl_allInstalledApplications: %lu",
+                      (unsigned long)proxies.count);
+            }
+            if (!proxies.count && [ws respondsToSelector:@selector(allInstalledApplications)]) {
                 proxies = [ws performSelector:@selector(allInstalledApplications)];
-            if (!proxies.count && [ws respondsToSelector:@selector(allApplications)])
+                NSLog(@"[DYDebugKit] using allInstalledApplications: %lu",
+                      (unsigned long)proxies.count);
+            }
+            if (!proxies.count && [ws respondsToSelector:@selector(allApplications)]) {
                 proxies = [ws performSelector:@selector(allApplications)];
+                NSLog(@"[DYDebugKit] using allApplications: %lu",
+                      (unsigned long)proxies.count);
+            }
 
             for (id proxy in proxies) {
                 @try {
@@ -88,9 +127,11 @@
                 } @catch (__unused NSException *e) {}
             }
         }
-    } @catch (NSException *e) {}
+    } @catch (NSException *e) {
+        NSLog(@"[DYDebugKit] workspace error: %@", e);
+    }
 
-    // 2. 目录扫描兜底
+    // 目录扫描兜底
     if (dict.count == 0) {
         NSArray *roots = @[
             @"/var/containers/Bundle/Application",
@@ -128,6 +169,7 @@
                 } @catch (__unused NSException *e) {}
             }
         }
+        NSLog(@"[DYDebugKit] after directory scan: %lu", (unsigned long)dict.count);
     }
 
     NSMutableArray<NSDictionary *> *list = [NSMutableArray array];
@@ -138,8 +180,10 @@
         return [a[@"name"] localizedCompare:b[@"name"]];
     }];
     self.allApps = list;
-    NSLog(@"[DYDebugKit] found %lu apps", (unsigned long)list.count);
+    NSLog(@"[DYDebugKit] total found %lu apps", (unsigned long)list.count);
 }
+
+#pragma mark - Specifiers
 
 - (NSArray *)specifiers {
     if (!self.cachedSpecifiers) {
@@ -154,7 +198,6 @@
                 NSString *bid = app[@"bundleID"] ?: @"";
                 NSString *name = app[@"name"] ?: bid;
                 if (!name.length) name = @"Unknown";
-
                 PSSpecifier *spec =
                     [PSSpecifier preferenceSpecifierNamed:name
                                                   target:self
@@ -174,7 +217,6 @@
                                                    detail:nil cell:PSGroupCell edit:nil];
                 [specs addObject:empty];
             }
-
             self.cachedSpecifiers = [specs copy];
         } @catch (NSException *e) {
             NSLog(@"[DYDebugKit] specifiers error: %@", e);
@@ -195,6 +237,5 @@
     if (!bid) return;
     self.enabledApps[bid] = @([value boolValue]);
 }
-
 
 @end
