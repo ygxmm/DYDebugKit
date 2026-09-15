@@ -5,9 +5,6 @@
 TARGET = iphone:clang:latest:14.0
 ARCHS = arm64 arm64e
 
-# ============================================================
-# 读 control 里的 Version
-# ============================================================
 DY_VERSION := $(shell awk -F': *' '$$1 == "Version" { print $$2; exit }' control)
 DYDEBUGKIT_PACKAGE_SCHEME ?= $(if $(THEOS_PACKAGE_SCHEME),$(THEOS_PACKAGE_SCHEME),rootful)
 
@@ -15,9 +12,6 @@ ifeq ($(strip $(DY_VERSION)),)
 $(error Missing Version in control)
 endif
 
-# ============================================================
-# Package Scheme
-# ============================================================
 ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),rootful)
 unexport THEOS_PACKAGE_SCHEME
 DYDEBUGKIT_PACKAGE_SUFFIX = arm-rootful
@@ -31,9 +25,6 @@ else
 $(error Unsupported DYDEBUGKIT_PACKAGE_SCHEME: $(DYDEBUGKIT_PACKAGE_SCHEME))
 endif
 
-# ============================================================
-# Theos
-# ============================================================
 include $(THEOS)/makefiles/common.mk
 
 # ============================================================
@@ -48,55 +39,37 @@ DYDebugKit_FILES = \
     DKClassDump.m \
     DKZipWriter.m
 
-DYDebugKit_CFLAGS = \
-    -fobjc-arc \
-    -Wall \
-    -Wextra \
-    -Wno-unused-parameter \
-    -Wno-unused-function
-
-DYDebugKit_FRAMEWORKS = \
-    UIKit \
-    Foundation \
-    QuartzCore \
-    CoreGraphics
-
+DYDebugKit_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
+DYDebugKit_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 DYDebugKit_LIBRARIES = z
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 # ============================================================
 # PreferenceBundle
-#   注意：源文件夹名是 DYDebugKitPrefs（与 BUNDLE_NAME 一致）
 # ============================================================
 BUNDLE_NAME = DYDebugKitPrefs
 
 DYDebugKitPrefs_FILES = \
     DYDebugKitPrefs/RootListController.m
 
-DYDebugKitPrefs_FRAMEWORKS = \
-    UIKit \
-    Foundation
+DYDebugKitPrefs_FRAMEWORKS = UIKit Foundation
 
 DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
+
+# ★ 关键 1：把 Info.plist 作为 bundle 资源打进去
+DYDebugKitPrefs_RESOURCE_FILES = \
+    DYDebugKitPrefs/Info.plist
 
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
 # ============================================================
-# 把 Info.plist 和 PreferenceLoader 入口 plist stage 进去
-#   两种 scheme 的路径都拷贝一份，避免 rootless/roothide 找不到
+# ★ 关键 2：只 stage PreferenceLoader 入口 plist
+#   bundle 内部的 Info.plist 由上面的 _RESOURCE_FILES 处理
 # ============================================================
 after-stage::
-	@echo ">>> Stage PreferenceBundle Info.plist"
-	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/DYDebugKitPrefs.bundle"
-	@mkdir -p "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceBundles/DYDebugKitPrefs.bundle"
-	@cp -f "DYDebugKitPrefs/Info.plist" \
-	    "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/DYDebugKitPrefs.bundle/Info.plist"
-	@cp -f "DYDebugKitPrefs/Info.plist" \
-	    "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceBundles/DYDebugKitPrefs.bundle/Info.plist"
-
 	@echo ">>> Stage PreferenceLoader entry plist"
 	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences"
 	@mkdir -p "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences"
@@ -106,51 +79,22 @@ after-stage::
 	    "$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
 
 # ============================================================
-# Logos
-# ============================================================
 DYDEBUGKIT_LOGOS_DEFAULT_GENERATOR = internal
 export THEOS_STRICT_LOGOS = 0
 export ERROR_ON_WARNINGS = 0
 export LOGOS_DEFAULT_GENERATOR = internal
 
-# ============================================================
-# Clean
-# ============================================================
 clean::
 	@rm -rf .theos packages
 
-# ============================================================
-# Rootful
-# ============================================================
 package-rootful::
-	@echo "================================"
-	@echo "Building DYDebugKit Rootful"
-	@echo "================================"
 	@rm -rf .theos
-	@$(MAKE) all package \
-		DYDEBUGKIT_PACKAGE_SCHEME=rootful \
-		FINALPACKAGE=1
+	@$(MAKE) all package DYDEBUGKIT_PACKAGE_SCHEME=rootful FINALPACKAGE=1
 
-# ============================================================
-# Rootless
-# ============================================================
 package-rootless::
-	@echo "================================"
-	@echo "Building DYDebugKit Rootless"
-	@echo "================================"
 	@rm -rf .theos
-	@$(MAKE) all package \
-		DYDEBUGKIT_PACKAGE_SCHEME=rootless \
-		FINALPACKAGE=1
+	@$(MAKE) all package DYDEBUGKIT_PACKAGE_SCHEME=rootless FINALPACKAGE=1
 
-# ============================================================
-# RootHide
-# ============================================================
 package-roothide::
-	@echo "================================"
-	@echo "Building DYDebugKit RootHide"
-	@echo "================================"
 	@rm -rf .theos
-	@$(MAKE) all package \
-		DYDEBUGKIT_PACKAGE_SCHEME=roothide \
-		FINALPACKAGE=1
+	@$(MAKE) all package DYDEBUGKIT_PACKAGE_SCHEME=roothide FINALPACKAGE=1
