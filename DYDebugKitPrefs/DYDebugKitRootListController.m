@@ -3,30 +3,36 @@
 
 #define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
-@interface DYDebugKitRootListController ()
+@interface LSApplicationProxy : NSObject
+- (NSString *)applicationIdentifier;
+- (NSString *)localizedName;
+- (NSString *)itemName;
+@end
+
+@interface LSApplicationWorkspace : NSObject
++ (instancetype)defaultWorkspace;
+- (NSArray *)allInstalledApplications;
+- (NSArray *)allApplications;
+@end
+
+@interface RootListController ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *enabledApps;
 @property (nonatomic, strong) NSArray<NSDictionary *> *allApps;
 @end
 
-@implementation DYDebugKitRootListController
-
-#pragma mark - Lifecycle
+@implementation RootListController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"DYDebugKit";
-
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithTitle:@"保存"
                                          style:UIBarButtonItemStyleDone
                                         target:self
                                         action:@selector(savePrefs)];
-
     [self loadPrefs];
     [self loadApps];
 }
-
-#pragma mark - Prefs I/O
 
 - (void)loadPrefs {
     NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
@@ -37,9 +43,7 @@
 - (void)savePrefs {
     NSDictionary *dict = @{ @"enabledApps": self.enabledApps ?: @{} };
     [dict writeToFile:kPrefsPath atomically:YES];
-
     notify_post("com.ygxmm.dydebugkit/reload");
-
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
                                            message:@"已保存，重启对应 App 后生效"
@@ -50,34 +54,38 @@
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-#pragma mark - 枚举已安装 App
-
 - (void)loadApps {
     NSMutableDictionary<NSString *, NSString *> *dict = [NSMutableDictionary dictionary];
-    NSFileManager *fm = [NSFileManager defaultManager];
 
-    NSArray<NSString *> *roots = @[
-        @"/Applications",
-        @"/var/containers/Bundle/Application",
-        @"/private/var/containers/Bundle/Application",
-    ];
+    Class wsClass = NSClassFromString(@"LSApplicationWorkspace");
+    if (wsClass) {
+        id ws = [wsClass performSelector:@selector(defaultWorkspace)];
+        NSArray *proxies = nil;
+        if ([ws respondsToSelector:@selector(allInstalledApplications)]) {
+            proxies = [ws performSelector:@selector(allInstalledApplications)];
+        }
+        if (!proxies.count && [ws respondsToSelector:@selector(allApplications)]) {
+            proxies = [ws performSelector:@selector(allApplications)];
+        }
 
-    for (NSString *root in roots) {
-        NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:root error:nil];
-        for (NSString *item in items) {
-            NSString *full = [root stringByAppendingPathComponent:item];
-
-            if ([item hasSuffix:@".app"]) {
-                [self addAppAtPath:full toDict:dict];
-                continue;
-            }
-
-            NSArray<NSString *> *subs = [fm contentsOfDirectoryAtPath:full error:nil];
-            for (NSString *sub in subs) {
-                if ([sub hasSuffix:@".app"]) {
-                    NSString *appFull = [full stringByAppendingPathComponent:sub];
-                    [self addAppAtPath:appFull toDict:dict];
+        for (id proxy in proxies) {
+            @autoreleasepool {
+                NSString *bid = nil;
+                if ([proxy respondsToSelector:@selector(applicationIdentifier)]) {
+                    bid = [proxy performSelector:@selector(applicationIdentifier)];
                 }
+                if (bid.length == 0) continue;
+                if ([bid hasPrefix:@"com.apple."]) continue;
+
+                NSString *name = nil;
+                if ([proxy respondsToSelector:@selector(localizedName)]) {
+                    name = [proxy performSelector:@selector(localizedName)];
+                }
+                if (name.length == 0 && [proxy respondsToSelector:@selector(itemName)]) {
+                    name = [proxy performSelector:@selector(itemName)];
+                }
+                if (name.length == 0) name = bid;
+                dict[bid] = name;
             }
         }
     }
@@ -89,47 +97,28 @@
     [list sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
         return [a[@"name"] localizedCompare:b[@"name"]];
     }];
-
     self.allApps = list;
 }
-
-- (void)addAppAtPath:(NSString *)appPath
-              toDict:(NSMutableDictionary<NSString *, NSString *> *)dict {
-    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
-                          [appPath stringByAppendingPathComponent:@"Info.plist"]];
-    NSString *bid = info[@"CFBundleIdentifier"];
-    if (bid.length == 0) return;
-
-    NSString *name = info[@"CFBundleDisplayName"]
-                     ?: info[@"CFBundleName"]
-                     ?: appPath.lastPathComponent;
-    dict[bid] = name;
-}
-
-#pragma mark - Specifiers
 
 - (NSArray *)specifiers {
     if (!_specifiers) {
         NSMutableArray *specs = [NSMutableArray array];
 
-        PSSpecifier *groupHeader = [PSSpecifier emptyGroupSpecifier];
-        groupHeader.name = @"勾选后重启对应 App 即可使用浮窗（默认全部关闭）";
-        [specs addObject:groupHeader];
+        PSSpecifier *header = [PSSpecifier emptyGroupSpecifier];
+        header.name = [NSString stringWithFormat:@"共 %lu 个 App（系统已过滤）",
+                       (unsigned long)self.allApps.count];
+        [specs addObject:header];
 
         for (NSDictionary *app in self.allApps) {
-            NSString *bid = app[@"bundleID"];
-            NSString *name = app[@"name"];
-
             PSSpecifier *spec =
-                [PSSpecifier preferenceSpecifierNamed:name
+                [PSSpecifier preferenceSpecifierNamed:app[@"name"]
                                               target:self
                                                  set:@selector(setValue:forSpecifier:)
                                                  get:@selector(getValue:)
                                               detail:nil
                                                 cell:PSSwitchCell
                                                 edit:nil];
-            [spec setProperty:bid forKey:@"bundleID"];
-            [spec setProperty:name forKey:@"displayName"];
+            [spec setProperty:app[@"bundleID"] forKey:@"bundleID"];
             [specs addObject:spec];
         }
 
@@ -145,8 +134,7 @@
 
 - (void)setValue:(id)value forSpecifier:(PSSpecifier *)spec {
     NSString *bid = [spec propertyForKey:@"bundleID"];
-    if (!bid) return;
-    self.enabledApps[bid] = @([value boolValue]);
+    if (bid) self.enabledApps[bid] = @([value boolValue]);
 }
 
 @end

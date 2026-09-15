@@ -3,6 +3,7 @@
         bundle = "DYDebugKitPrefs";
         cell = PSLinkCell;
         detail = "DYDebugKitRootListController";
+        isController = true;
         label = "DYDebugKit";
     };
 }
