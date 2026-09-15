@@ -2,8 +2,8 @@ Package: com.ygxmm.dydebugkit
 Name: DYDebugKit
 Version: 1.0.0
 Architecture: iphoneos-arm
-Description: DYDebugKit
-Maintainer: DYDebugKit
-Author: DYDebugKit
+Description: An iOS debug collection tweak.
+Maintainer: ygxmm
+Author: ygxmm
 Section: Tweaks
-Depends: mobilesubstrate, preferenceloader
+Depends: mobilesubstrate, preferenceloader, com.opa334.altlist
