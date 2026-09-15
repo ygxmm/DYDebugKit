@@ -1,66 +1,235 @@
 //
-//  DKClassDump.m
+//  DKZipWriter.m
 //  DYKiller
 //
-//  基于 ObjC 运行时生成类头文件文本。
-//  DKClassIsSafe 用于限制可内省类集合。
+//  调试导出使用的最小 ZIP 写入器。
+//  写入存储条目，并使用 zlib 计算 CRC32。
 //
 
-#import "DKClassDump.h"
+#import "DKZipWriter.h"
 #import <CoreFoundation/CoreFoundation.h>
+#import <zlib.h>
 
-static NSString *DKCString(const char *value) {
-    if (!value) return @"";
-    NSString *utf8 = [NSString stringWithUTF8String:value];
-    if (utf8) return utf8;
-    size_t length = strnlen(value, 4096);
-    NSString *latin = [[NSString alloc] initWithBytes:value length:length encoding:NSISOLatin1StringEncoding];
-    if (latin) return latin;
-    NSMutableString *hex = [NSMutableString stringWithString:@"<bytes:"];
-    for (size_t i = 0; i < MIN(length, (size_t)64); i++) [hex appendFormat:@"%02x", (unsigned char)value[i]];
-    [hex appendString:@">"];
-    return hex;
+static void DKZipAppendUInt16(NSMutableData *data, uint16_t value) {
+    uint16_t v = CFSwapInt16HostToLittle(value);
+    [data appendBytes:&v length:sizeof(v)];
 }
 
-#pragma mark - 安全内省检查
-
-static CFSetRef DKUnsafeClassSet;
-static Class DKcNSObject;
-static Class DKcNSProxy;
-
-__attribute__((constructor))
-static void DKClassDumpInit(void) {
-    DKcNSObject = [NSObject class];
-    DKcNSProxy = [NSProxy class];
-
-    static const char *const kUnsafeNames[] = {
-        "__ARCLite__", "__NSCFCalendar", "__NSCFTimer", "NSCFTimer",
-        "__NSGenericDeallocHandler", "NSAutoreleasePool", "NSPlaceholderNumber",
-        "NSPlaceholderString", "NSPlaceholderValue", "Object", "VMUArchitecture",
-        "JSExport", "__NSAtom", "_NSZombie_", "_CNZombie_", "__NSMessage",
-        "__NSMessageBuilder", "FigIrisAutoTrimmerMotionSampleExport", "_UIPointVector",
-    };
-    NSUInteger n = sizeof(kUnsafeNames) / sizeof(kUnsafeNames[0]);
-    const void **classes = malloc(n * sizeof(void *));
-    NSUInteger count = 0;
-    for (NSUInteger i = 0; i < n; i++) {
-        Class c = objc_getClass(kUnsafeNames[i]);
-        if (c) classes[count++] = (__bridge const void *)c;
-    }
-    DKUnsafeClassSet = CFSetCreate(kCFAllocatorDefault, classes, count, NULL);
-    free(classes);
+static void DKZipAppendUInt32(NSMutableData *data, uint32_t value) {
+    uint32_t v = CFSwapInt32HostToLittle(value);
+    [data appendBytes:&v length:sizeof(v)];
 }
 
-BOOL DKClassIsSafe(Class cls) {
-    if (!cls) return NO;
-    if (DKUnsafeClassSet && CFSetContainsValue(DKUnsafeClassSet, (__bridge const void *)cls)) return NO;
-    if (!class_getSuperclass(cls)) {
-        return cls == DKcNSObject || cls == DKcNSProxy;
+static void DKZipAppendUInt64(NSMutableData *data, uint64_t value) {
+    uint64_t v = CFSwapInt64HostToLittle(value);
+    [data appendBytes:&v length:sizeof(v)];
+}
+
+static NSString *DKZipRelativePath(NSString *path, NSString *rootDir) {
+    NSString *prefix = [rootDir stringByAppendingString:@"/"];
+    if ([path hasPrefix:prefix]) return [path substringFromIndex:prefix.length];
+    return path.lastPathComponent ?: @"file";
+}
+
+static NSError *DKZipError(NSInteger code, NSString *message) {
+    return [NSError errorWithDomain:@"DYKiller.Zip" code:code
+                           userInfo:@{NSLocalizedDescriptionKey: message ?: @"ZIP failed"}];
+}
+
+static NSData *DKZipLocalHeader(NSData *nameData, uint32_t crc, uint32_t size) {
+    NSMutableData *d = [NSMutableData data];
+    DKZipAppendUInt32(d, 0x04034b50);
+    DKZipAppendUInt16(d, 20);
+    DKZipAppendUInt16(d, 0x0800);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt32(d, crc);
+    DKZipAppendUInt32(d, size);
+    DKZipAppendUInt32(d, size);
+    DKZipAppendUInt16(d, (uint16_t)nameData.length);
+    DKZipAppendUInt16(d, 0);
+    [d appendData:nameData];
+    return d;
+}
+
+static NSData *DKZipCentralHeader(NSData *nameData, uint32_t crc, uint32_t size, uint32_t offset) {
+    NSMutableData *d = [NSMutableData data];
+    DKZipAppendUInt32(d, 0x02014b50);
+    DKZipAppendUInt16(d, 20);
+    DKZipAppendUInt16(d, 20);
+    DKZipAppendUInt16(d, 0x0800);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt32(d, crc);
+    DKZipAppendUInt32(d, size);
+    DKZipAppendUInt32(d, size);
+    DKZipAppendUInt16(d, (uint16_t)nameData.length);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt16(d, 0);
+    DKZipAppendUInt32(d, 0);
+    DKZipAppendUInt32(d, offset);
+    [d appendData:nameData];
+    return d;
+}
+
+static NSData *DKZipEndRecords(uint64_t entryCount, uint64_t centralSize, uint64_t centralOffset) {
+    NSMutableData *end = [NSMutableData data];
+    BOOL needsZip64 = entryCount >= UINT16_MAX;
+    if (needsZip64) {
+        uint64_t zip64EndOffset = centralOffset + centralSize;
+        DKZipAppendUInt32(end, 0x06064b50);
+        DKZipAppendUInt64(end, 44);
+        DKZipAppendUInt16(end, 45);
+        DKZipAppendUInt16(end, 45);
+        DKZipAppendUInt32(end, 0);
+        DKZipAppendUInt32(end, 0);
+        DKZipAppendUInt64(end, entryCount);
+        DKZipAppendUInt64(end, entryCount);
+        DKZipAppendUInt64(end, centralSize);
+        DKZipAppendUInt64(end, centralOffset);
+
+        DKZipAppendUInt32(end, 0x07064b50);
+        DKZipAppendUInt32(end, 0);
+        DKZipAppendUInt64(end, zip64EndOffset);
+        DKZipAppendUInt32(end, 1);
     }
+
+    uint16_t legacyEntryCount = entryCount >= UINT16_MAX ? UINT16_MAX : (uint16_t)entryCount;
+    DKZipAppendUInt32(end, 0x06054b50);
+    DKZipAppendUInt16(end, 0);
+    DKZipAppendUInt16(end, 0);
+    DKZipAppendUInt16(end, legacyEntryCount);
+    DKZipAppendUInt16(end, legacyEntryCount);
+    DKZipAppendUInt32(end, (uint32_t)centralSize);
+    DKZipAppendUInt32(end, (uint32_t)centralOffset);
+    DKZipAppendUInt16(end, 0);
+    return end;
+}
+
+@implementation DKZipWriter
+
++ (BOOL)createZipAtPath:(NSString *)zipPath
+                rootDir:(NSString *)rootDir
+                  files:(NSArray<NSString *> *)files
+               progress:(DKZipProgressBlock)progress
+                  error:(NSError **)error {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *parent = zipPath.stringByDeletingLastPathComponent;
+    if (parent.length) {
+        NSError *dirError = nil;
+        if (![fm createDirectoryAtPath:parent withIntermediateDirectories:YES attributes:nil error:&dirError] && dirError) {
+            if (error) *error = dirError;
+            return NO;
+        }
+    }
+
+    [fm removeItemAtPath:zipPath error:nil];
+    if (![fm createFileAtPath:zipPath contents:NSData.data attributes:nil]) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"DYKiller.Zip"
+                                         code:-1
+                                     userInfo:@{NSLocalizedDescriptionKey: @"ZIP file creation failed"}];
+        }
+        return NO;
+    }
+
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:zipPath];
+    if (!handle) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"DYKiller.Zip"
+                                         code:-2
+                                     userInfo:@{NSLocalizedDescriptionKey: @"ZIP file handle creation failed"}];
+        }
+        return NO;
+    }
+
+    NSMutableData *central = [NSMutableData data];
+    NSMutableSet<NSString *> *seenPaths = [NSMutableSet set];
+    uint32_t offset = 0;
+    uint64_t entryCount = 0;
+    NSUInteger total = files.count;
+    NSUInteger done = 0;
+
+    for (NSString *file in files) {
+        NSError *entryError = nil;
+        @autoreleasepool {
+            do {
+                BOOL isDir = NO;
+                if (![fm fileExistsAtPath:file isDirectory:&isDir] || isDir) {
+                    entryError = DKZipError(-3, [NSString stringWithFormat:@"ZIP source file missing: %@", file]);
+                    break;
+                }
+
+                NSString *relative = DKZipRelativePath(file, rootDir);
+                if ([seenPaths containsObject:relative]) {   // 同一相对路径只写最终文件内容一次
+                    done++;
+                    break;
+                }
+                [seenPaths addObject:relative];
+                NSData *content = [NSData dataWithContentsOfFile:file];
+                NSData *nameData = [relative dataUsingEncoding:NSUTF8StringEncoding];
+                if (!content || !nameData.length || nameData.length > UINT16_MAX || content.length > UINT32_MAX) {
+                    entryError = DKZipError(-4, [NSString stringWithFormat:@"ZIP entry unsupported: %@", relative]);
+                    break;
+                }
+
+                uint32_t size = (uint32_t)content.length;
+                uint32_t crc = (uint32_t)crc32(0, content.bytes, (uInt)content.length);
+                NSData *local = DKZipLocalHeader(nameData, crc, size);
+                if (local.length + content.length > UINT32_MAX - offset) {
+                    entryError = DKZipError(-8, @"ZIP32 data offset overflow");
+                    break;
+                }
+                @try {
+                    [handle writeData:local];
+                    [handle writeData:content];
+                } @catch (NSException *exception) {
+                    entryError = DKZipError(-5, exception.reason ?: @"ZIP entry write failed");
+                    break;
+                }
+                [central appendData:DKZipCentralHeader(nameData, crc, size, offset)];
+
+                offset += (uint32_t)(local.length + content.length);
+                entryCount++;
+                done++;
+                if (progress) progress((CGFloat)done / (CGFloat)MAX(total, 1));
+            } while (NO);
+        }
+        if (entryError) {
+            [handle closeFile];
+            if (error) *error = entryError;
+            return NO;
+        }
+    }
+
+    if (central.length > UINT32_MAX) {
+        [handle closeFile];
+        if (error) *error = DKZipError(-9, @"ZIP32 central directory overflow");
+        return NO;
+    }
+    uint64_t centralOffset = offset;
+    uint64_t centralSize = central.length;
+    @try {
+        [handle writeData:central];
+    } @catch (NSException *exception) {
+        [handle closeFile];
+        if (error) *error = DKZipError(-6, exception.reason ?: @"ZIP central directory write failed");
+        return NO;
+    }
+    NSData *end = DKZipEndRecords(entryCount, centralSize, centralOffset);
+    @try {
+        [handle writeData:end];
+    } @catch (NSException *exception) {
+        [handle closeFile];
+        if (error) *error = DKZipError(-7, exception.reason ?: @"ZIP footer write failed");
+        return NO;
+    }
+    [handle closeFile];
     return YES;
 }
 
-// ... 其余部分（DKIsLikelySwiftName、DKClassNameIsRuntimeGenerated、
-// DKTypeFromEncoding、DKPropertyLine、DKMethodLine、
-// DKHeaderForClass、DKClassDumpHeaderForClass）
-// 完全沿用你之前发我的版本即可
+@end
