@@ -126,7 +126,6 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         return;
     }
 
-    // zip 路径
     NSString *zipName = nil;
     switch (scope) {
         case DYDebugExportScopeCurrentPage:  zipName = @"DYDebugKit-page.zip";  break;
@@ -216,7 +215,17 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     DYDebugOverlayController *controller =
         (DYDebugOverlayController *)self.rootViewController;
 
-    if (controller == nil || controller.button == nil) {
+    if (controller == nil) {
+        return NO;
+    }
+
+    // 关键：只要有 presented 控制器（Alert / ActionSheet / 分享面板），
+    // 整个 window 都要接收触摸，否则弹窗上的按钮点不动
+    if (controller.presentedViewController != nil) {
+        return YES;
+    }
+
+    if (controller.button == nil) {
         return NO;
     }
 
