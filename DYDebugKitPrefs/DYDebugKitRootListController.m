@@ -20,7 +20,6 @@
 @interface DYDebugKitRootListController ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *enabledApps;
 @property (nonatomic, strong) NSArray<NSDictionary *> *allApps;
-@property (nonatomic, strong) NSArray *cachedSpecifiers;
 @end
 
 @implementation DYDebugKitRootListController
@@ -57,7 +56,7 @@ static void DYLoadAltListOnce(void) {
                                         action:@selector(savePrefs)];
     [self loadPrefs];
     [self loadApps];
-    [self reloadSpecifiers];
+    [self rebuildSpecifiers];
 }
 
 - (void)loadPrefs {
@@ -121,41 +120,41 @@ static void DYLoadAltListOnce(void) {
     self.allApps = list;
 }
 
-- (NSArray *)specifiers {
-    if (!self.cachedSpecifiers) {
-        NSMutableArray *specs = [NSMutableArray array];
-        PSSpecifier *header = [PSSpecifier emptyGroupSpecifier];
-        header.name = [NSString stringWithFormat:@"共 %lu 个 App（系统已过滤）",
-                       (unsigned long)self.allApps.count];
-        [specs addObject:header];
+- (void)rebuildSpecifiers {
+    NSMutableArray *specs = [NSMutableArray array];
 
-        for (NSDictionary *app in self.allApps) {
-            NSString *bid = app[@"bundleID"] ?: @"";
-            NSString *name = app[@"name"] ?: bid;
-            if (!name.length) name = @"Unknown";
-            PSSpecifier *spec =
-                [PSSpecifier preferenceSpecifierNamed:name
-                                              target:self
-                                                 set:@selector(dy_setValue:forSpecifier:)
-                                                 get:@selector(dy_getValue:)
-                                              detail:nil
-                                                cell:PSSwitchCell
-                                                edit:nil];
-            [spec setProperty:bid forKey:@"bundleID"];
-            [specs addObject:spec];
-        }
-        self.cachedSpecifiers = [specs copy];
+    PSSpecifier *header = [PSSpecifier emptyGroupSpecifier];
+    header.name = [NSString stringWithFormat:@"共 %lu 个 App（系统已过滤）",
+                   (unsigned long)self.allApps.count];
+    [specs addObject:header];
+
+    for (NSDictionary *app in self.allApps) {
+        NSString *bid = app[@"bundleID"] ?: @"";
+        NSString *name = app[@"name"] ?: bid;
+        if (!name.length) name = @"Unknown";
+
+        PSSpecifier *spec =
+            [PSSpecifier preferenceSpecifierNamed:name
+                                          target:self
+                                             set:@selector(setPreferenceValue:specifier:)
+                                             get:@selector(readPreferenceValue:)
+                                          detail:nil
+                                            cell:PSSwitchCell
+                                            edit:nil];
+        [spec setProperty:bid forKey:@"bundleID"];
+        [specs addObject:spec];
     }
-    return self.cachedSpecifiers;
+
+    [self setSpecifiers:specs];
 }
 
-- (id)dy_getValue:(PSSpecifier *)spec {
+- (id)readPreferenceValue:(PSSpecifier *)spec {
     NSString *bid = [spec propertyForKey:@"bundleID"];
     if (!bid) return @NO;
     return @([self.enabledApps[bid] boolValue]);
 }
 
-- (void)dy_setValue:(id)value forSpecifier:(PSSpecifier *)spec {
+- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)spec {
     NSString *bid = [spec propertyForKey:@"bundleID"];
     if (!bid) return;
     self.enabledApps[bid] = @([value boolValue]);
