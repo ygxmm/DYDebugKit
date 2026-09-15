@@ -38,7 +38,6 @@
     NSDictionary *dict = @{ @"enabledApps": self.enabledApps ?: @{} };
     [dict writeToFile:kPrefsPath atomically:YES];
 
-    // 通知所有进程刷新（App 重启后生效）
     notify_post("com.ygxmm.dydebugkit/reload");
 
     UIAlertController *alert =
@@ -68,13 +67,11 @@
         for (NSString *item in items) {
             NSString *full = [root stringByAppendingPathComponent:item];
 
-            // 情况 1：直接是 .app
             if ([item hasSuffix:@".app"]) {
                 [self addAppAtPath:full toDict:dict];
                 continue;
             }
 
-            // 情况 2：UUID 目录里含 .app
             NSArray<NSString *> *subs = [fm contentsOfDirectoryAtPath:full error:nil];
             for (NSString *sub in subs) {
                 if ([sub hasSuffix:@".app"]) {
@@ -85,7 +82,6 @@
         }
     }
 
-    // 转数组按名字排序
     NSMutableArray<NSDictionary *> *list = [NSMutableArray array];
     for (NSString *bid in dict) {
         [list addObject:@{ @"bundleID": bid, @"name": dict[bid] }];
@@ -103,10 +99,7 @@
                           [appPath stringByAppendingPathComponent:@"Info.plist"]];
     NSString *bid = info[@"CFBundleIdentifier"];
     if (bid.length == 0) return;
-    // 跳过系统内部 App
-    if ([bid hasPrefix:@"com.apple."] && ![@[@"com.apple.Preferences"] containsObject:bid]) {
-        // 系统 App 也允许显示，但如果你不想显示系统 App，去掉这个 return 就行
-    }
+
     NSString *name = info[@"CFBundleDisplayName"]
                      ?: info[@"CFBundleName"]
                      ?: appPath.lastPathComponent;
