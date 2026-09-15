@@ -42,6 +42,8 @@ DYDebugKitPrefs_FILES = $(wildcard DYDebugKitPrefs/*.m)
 DYDebugKitPrefs_FRAMEWORKS = UIKit Foundation
 DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
+DYDebugKitPrefs_RESOURCE_DIRS = DYDebugKitPrefs/Resources
+
 include $(THEOS_MAKE_PATH)/bundle.mk
 
 # ============================================================
