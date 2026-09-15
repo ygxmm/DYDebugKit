@@ -16,7 +16,6 @@
 
 #pragma mark - 按范围收集类
 
-// 本页：从 rootVC 开始，收集 VC 链 + 视图树上所有类
 static void DYCollectViewClasses(UIView *view,
                                  NSMutableArray<Class> *result) {
     if (view == nil) return;
@@ -78,7 +77,6 @@ static NSArray<Class> *DYCollectClassesForScope(DYDebugExportScope scope) {
     }
 
     if (scope == DYDebugExportScopeCurrentAudio) {
-        // 全量类名过滤音频相关
         static NSString *const kKeywords[] = {
             @"Audio", @"AVPlayer", @"AVAudio", @"AVAsset",
             @"MPMusic", @"MPMedia", @"MPMovie", @"AVCapture",
@@ -101,7 +99,6 @@ static NSArray<Class> *DYCollectClassesForScope(DYDebugExportScope scope) {
                         break;
                     }
                 }
-                // AV / MP 前缀避免误伤（比如 AVFoundation 里没别的东西）
                 if (!matched) {
                     if ([name hasPrefix:@"AV"] || [name hasPrefix:@"MP"]) {
                         matched = YES;
@@ -164,17 +161,14 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
         return NO;
     }
 
-    // 1. view-tree.txt
     NSString *viewTreePath = [root stringByAppendingPathComponent:@"view-tree.txt"];
     if (![[snapshot.viewTree dataUsingEncoding:NSUTF8StringEncoding]
           writeToFile:viewTreePath options:NSDataWritingAtomic error:error]) return NO;
 
-    // 2. view-controllers.txt
     NSString *viewControllersPath = [root stringByAppendingPathComponent:@"view-controllers.txt"];
     if (![[snapshot.viewControllers dataUsingEncoding:NSUTF8StringEncoding]
           writeToFile:viewControllersPath options:NSDataWritingAtomic error:error]) return NO;
 
-    // 3. metadata.json
     NSDictionary *metadata = @{
         @"exportTime" : [NSDate date].description ?: @"",
         @"bundleID"   : [NSBundle mainBundle].bundleIdentifier ?: @"",
@@ -190,7 +184,6 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
     NSString *metadataPath = [root stringByAppendingPathComponent:@"metadata.json"];
     if (![metadataData writeToFile:metadataPath options:NSDataWritingAtomic error:error]) return NO;
 
-    // 4. screenshot.png
     __block NSData *pngData = nil;
     void (^captureBlock)(void) = ^{
         UIWindow *keyWindow = nil;
@@ -229,7 +222,6 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
         if (![pngData writeToFile:screenshotPath options:NSDataWritingAtomic error:error]) return NO;
     }
 
-    // 5. headers/
     NSString *headersDir = [root stringByAppendingPathComponent:@"headers"];
     if (![fm createDirectoryAtPath:headersDir
        withIntermediateDirectories:YES attributes:nil error:nil]) {
@@ -272,7 +264,6 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
         }
     }
 
-    // 6. 打包 zip
     NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:DYScopeZipName(scope)];
     NSMutableArray<NSString *> *allFiles = [NSMutableArray arrayWithObjects:
                                             metadataPath, viewTreePath, viewControllersPath, nil];
