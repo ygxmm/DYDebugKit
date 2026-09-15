@@ -4,15 +4,7 @@
 
 <plist version="1.0">
 <dict>
-    <key>Filter</key>
-    <dict>
-        <key>Bundles</key>
-        <array>
-            <!-- 先用系统“设置”测试，确认能显示后再改成你的目标 App -->
-            <string>com.apple.Preferences</string>
-            <!-- 如果想注入 SpringBoard，用下面这行替换上面那行（注意是小写 springboard） -->
-            <!-- <string>com.apple.springboard</string> -->
-        </array>
-    </dict>
+    <!-- 不写 Filter，Substrate 会注入所有进程。
+         Tweak 的 %ctor 里会判断 bundleID 是否在启用列表里。 -->
 </dict>
 </plist>
