@@ -60,6 +60,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 }
 
 - (void)debugTapped {
+    // 防止 Alert / 分享面板叠加
     if (self.presentedViewController != nil) {
         return;
     }
@@ -81,18 +82,64 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     NSError *error = nil;
     BOOL success = [DYDebugExport exportSnapshot:snapshot error:&error];
 
-    NSString *message = nil;
-    if (success) {
-        message = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit.zip"];
-        NSLog(@"[DYDebugKit] Export succeeded: %@", message);
-    } else {
-        message = error.localizedDescription ?: @"导出失败";
+    if (!success) {
         NSLog(@"[DYDebugKit] Export failed: %@", error);
+        [self showResult:error.localizedDescription ?: @"导出失败"];
+        return;
     }
 
-    [self showResult:message];
+    // 导出成功后：zip 路径
+    NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit.zip"];
+
+    // 清理中间目录，只保留 zip
+    NSString *workDir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit"];
+    [[NSFileManager defaultManager] removeItemAtPath:workDir error:nil];
+
+    NSLog(@"[DYDebugKit] Export succeeded: %@", zipPath);
+
+    // 弹系统分享面板
+    [self shareZipAtPath:zipPath];
 }
 
+// 系统分享面板
+- (void)shareZipAtPath:(NSString *)zipPath {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:zipPath]) {
+        [self showResult:[NSString stringWithFormat:@"文件不存在：\n%@", zipPath]];
+        return;
+    }
+
+    NSURL *zipURL = [NSURL fileURLWithPath:zipPath];
+
+    UIActivityViewController *activity =
+        [[UIActivityViewController alloc] initWithActivityItems:@[zipURL]
+                                          applicationActivities:nil];
+
+    // iPad / 弹窗必须设置 popover 锚点，否则崩溃
+    if (activity.popoverPresentationController) {
+        activity.popoverPresentationController.sourceView = self.button;
+        activity.popoverPresentationController.sourceRect = self.button.bounds;
+        activity.popoverPresentationController.permittedArrowDirections = 0;
+    }
+
+    // 关闭后恢复 overlay key 状态
+    activity.completionWithItemsHandler = ^(UIActivityType activityType,
+                                            BOOL completed,
+                                            NSArray *returnedItems,
+                                            NSError *activityError) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (gWindow != nil && !gWindow.hidden) {
+                [gWindow makeKeyWindow];
+            }
+        });
+    };
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self presentViewController:activity animated:YES completion:nil];
+    });
+}
+
+// 统一显示提示
 - (void)showResult:(NSString *)message {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
