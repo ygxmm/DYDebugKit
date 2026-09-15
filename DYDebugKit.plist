@@ -8,7 +8,10 @@
     <dict>
         <key>Bundles</key>
         <array>
-            <string>*</string>
+            <!-- 先用系统“设置”测试，确认能显示后再改成你的目标 App -->
+            <string>com.apple.Preferences</string>
+            <!-- 如果想注入 SpringBoard，用下面这行替换上面那行（注意是小写 springboard） -->
+            <!-- <string>com.apple.springboard</string> -->
         </array>
     </dict>
 </dict>
