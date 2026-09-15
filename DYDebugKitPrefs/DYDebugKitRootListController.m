@@ -15,12 +15,12 @@
 - (NSArray *)allApplications;
 @end
 
-@interface RootListController ()
+@interface DYDebugKitRootListController ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *enabledApps;
 @property (nonatomic, strong) NSArray<NSDictionary *> *allApps;
 @end
 
-@implementation RootListController
+@implementation DYDebugKitRootListController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
