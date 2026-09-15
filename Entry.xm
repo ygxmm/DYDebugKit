@@ -59,28 +59,66 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     );
 }
 
+#pragma mark - 弹出功能菜单
+
 - (void)debugTapped {
-    // 防止 Alert / 分享面板叠加
-    if (self.presentedViewController != nil) {
-        return;
+    if (self.presentedViewController != nil) return;
+
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"DYDebugKit"
+                                           message:@"选择导出范围"
+                                    preferredStyle:UIAlertControllerStyleActionSheet];
+
+    __weak typeof(self) weakSelf = self;
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"① 导出本页头文件"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *action) {
+        [weakSelf performExportWithScope:DYDebugExportScopeCurrentPage];
+    }]];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"② 导出当前 App 头文件"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *action) {
+        [weakSelf performExportWithScope:DYDebugExportScopeCurrentApp];
+    }]];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"③ 导出当前播放音频头文件"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(UIAlertAction *action) {
+        [weakSelf performExportWithScope:DYDebugExportScopeCurrentAudio];
+    }]];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+
+    if (sheet.popoverPresentationController) {
+        sheet.popoverPresentationController.sourceView = self.button;
+        sheet.popoverPresentationController.sourceRect = self.button.bounds;
+        sheet.popoverPresentationController.permittedArrowDirections = 0;
     }
 
-    UIWindow *target = DYDebugTargetWindow();
+    [self presentViewController:sheet animated:YES completion:nil];
+}
 
+#pragma mark - 执行导出
+
+- (void)performExportWithScope:(DYDebugExportScope)scope {
+    UIWindow *target = DYDebugTargetWindow();
     if (target == nil) {
         [self showResult:@"找不到当前窗口"];
         return;
     }
 
     DYDebugSnapshot *snapshot = DYDebugCaptureSnapshot(target);
-
     if (snapshot == nil) {
         [self showResult:@"无法创建调试快照"];
         return;
     }
 
     NSError *error = nil;
-    BOOL success = [DYDebugExport exportSnapshot:snapshot error:&error];
+    BOOL success = [DYDebugExport exportSnapshot:snapshot scope:scope error:&error];
 
     if (!success) {
         NSLog(@"[DYDebugKit] Export failed: %@", error);
@@ -88,20 +126,28 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         return;
     }
 
-    // 导出成功后：zip 路径
-    NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit.zip"];
+    // zip 路径
+    NSString *zipName = nil;
+    switch (scope) {
+        case DYDebugExportScopeCurrentPage:  zipName = @"DYDebugKit-page.zip";  break;
+        case DYDebugExportScopeCurrentApp:   zipName = @"DYDebugKit-app.zip";   break;
+        case DYDebugExportScopeCurrentAudio: zipName = @"DYDebugKit-audio.zip"; break;
+    }
 
-    // 清理中间目录，只保留 zip
-    NSString *workDir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit"];
+    NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:zipName];
+
+    // 清理中间目录，只留 zip
+    NSString *workDirName = [zipName stringByReplacingOccurrencesOfString:@".zip" withString:@""];
+    NSString *workDir = [NSTemporaryDirectory() stringByAppendingPathComponent:workDirName];
     [[NSFileManager defaultManager] removeItemAtPath:workDir error:nil];
 
     NSLog(@"[DYDebugKit] Export succeeded: %@", zipPath);
 
-    // 弹系统分享面板
     [self shareZipAtPath:zipPath];
 }
 
-// 系统分享面板
+#pragma mark - 分享
+
 - (void)shareZipAtPath:(NSString *)zipPath {
     NSFileManager *fm = [NSFileManager defaultManager];
     if (![fm fileExistsAtPath:zipPath]) {
@@ -115,14 +161,12 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         [[UIActivityViewController alloc] initWithActivityItems:@[zipURL]
                                           applicationActivities:nil];
 
-    // iPad / 弹窗必须设置 popover 锚点，否则崩溃
     if (activity.popoverPresentationController) {
         activity.popoverPresentationController.sourceView = self.button;
         activity.popoverPresentationController.sourceRect = self.button.bounds;
         activity.popoverPresentationController.permittedArrowDirections = 0;
     }
 
-    // 关闭后恢复 overlay key 状态
     activity.completionWithItemsHandler = ^(UIActivityType activityType,
                                             BOOL completed,
                                             NSArray *returnedItems,
@@ -139,7 +183,8 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     });
 }
 
-// 统一显示提示
+#pragma mark - 提示
+
 - (void)showResult:(NSString *)message {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
