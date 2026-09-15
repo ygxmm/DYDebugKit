@@ -6,4 +6,4 @@ Description: DYDebugKit
 Maintainer: DYDebugKit
 Author: DYDebugKit
 Section: Tweaks
-Depends: mobilesubstrate
+Depends: mobilesubstrate, preferenceloader
