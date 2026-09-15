@@ -69,35 +69,22 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 }
 
 - (void)debugTapped {
+    // 防止 Alert 叠加
+    if (self.presentedViewController != nil) {
+        return;
+    }
+
     UIWindow *target = DYDebugTargetWindow();
 
     if (target == nil) {
-        UIAlertController *alert =
-            [UIAlertController alertControllerWithTitle:@"DYDebugKit"
-                                               message:@"找不到当前窗口"
-                                        preferredStyle:UIAlertControllerStyleAlert];
-
-        [alert addAction:[UIAlertAction actionWithTitle:@"确定"
-                                                  style:UIAlertActionStyleCancel
-                                                handler:nil]];
-
-        [self presentViewController:alert animated:YES completion:nil];
+        [self showResult:@"找不到当前窗口"];
         return;
     }
 
     DYDebugSnapshot *snapshot = DYDebugCaptureSnapshot(target);
 
     if (snapshot == nil) {
-        UIAlertController *alert =
-            [UIAlertController alertControllerWithTitle:@"DYDebugKit"
-                                               message:@"无法创建调试快照"
-                                        preferredStyle:UIAlertControllerStyleAlert];
-
-        [alert addAction:[UIAlertAction actionWithTitle:@"确定"
-                                                  style:UIAlertActionStyleCancel
-                                                handler:nil]];
-
-        [self presentViewController:alert animated:YES completion:nil];
+        [self showResult:@"无法创建调试快照"];
         return;
     }
 
@@ -113,6 +100,11 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         NSLog(@"[DYDebugKit] Export failed: %@", error);
     }
 
+    [self showResult:message];
+}
+
+// 统一显示提示，并在关闭后恢复 overlay window 的 key 状态
+- (void)showResult:(NSString *)message {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
                                            message:message
@@ -120,9 +112,19 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     [alert addAction:[UIAlertAction actionWithTitle:@"确定"
                                               style:UIAlertActionStyleCancel
-                                            handler:nil]];
+                                            handler:^(UIAlertAction *action) {
+        // 关键：alert 关闭后，重新把 overlay window 设为 key，
+        // 否则浮窗按钮会收不到触摸事件
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (gWindow != nil && !gWindow.hidden) {
+                [gWindow makeKeyWindow];
+            }
+        });
+    }]];
 
-    [self presentViewController:alert animated:YES completion:nil];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self presentViewController:alert animated:YES completion:nil];
+    });
 }
 
 @end
