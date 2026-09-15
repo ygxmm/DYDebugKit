@@ -7,40 +7,24 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ============================================================
-  # Rootful
-  # ============================================================
   build-rootful:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Theos
-        uses: theos/theos@master
-        with:
-          theos: ${{ github.workspace }}/theos
+        run: |
+          set -e
+          export THEOS="${{ github.workspace }}/theos"
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
 
       - name: Build Rootful
         run: |
           set -e
-          export THEOS="${{ github.workspace }}/theos"
           export PATH="$THEOS/bin:$PATH"
-
-          echo "================================"
-          echo "Build Rootful"
-          echo "================================"
-
           rm -rf .theos
-
           make package-rootful FINALPACKAGE=1
-
-          echo
-          echo "Rootful packages:"
-          find packages \
-            -type f \
-            -name "*.deb" \
-            -print \
-            | sort
 
       - name: Upload Rootful deb
         uses: actions/upload-artifact@v4
@@ -49,40 +33,24 @@ jobs:
           path: packages/*iphoneos-arm.deb
           if-no-files-found: error
 
-  # ============================================================
-  # Rootless
-  # ============================================================
   build-rootless:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Theos
-        uses: theos/theos@master
-        with:
-          theos: ${{ github.workspace }}/theos
+        run: |
+          set -e
+          export THEOS="${{ github.workspace }}/theos"
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
 
       - name: Build Rootless
         run: |
           set -e
-          export THEOS="${{ github.workspace }}/theos"
           export PATH="$THEOS/bin:$PATH"
-
-          echo "================================"
-          echo "Build Rootless"
-          echo "================================"
-
           rm -rf .theos
-
           make package-rootless FINALPACKAGE=1
-
-          echo
-          echo "Rootless packages:"
-          find packages \
-            -type f \
-            -name "*.deb" \
-            -print \
-            | sort
 
       - name: Upload Rootless deb
         uses: actions/upload-artifact@v4
@@ -91,9 +59,6 @@ jobs:
           path: packages/*iphoneos-arm64.deb
           if-no-files-found: error
 
-  # ============================================================
-  # RootHide
-  # ============================================================
   build-roothide:
     runs-on: macos-latest
     steps:
@@ -102,31 +67,16 @@ jobs:
       - name: Setup RootHide Theos
         run: |
           set -e
-          export ROOTHIDE_THEOS="${{ github.workspace }}/theos-roothide"
-          git clone --recursive https://github.com/roothide/theos.git "$ROOTHIDE_THEOS"
-          echo "ROOTHIDE_THEOS=$ROOTHIDE_THEOS" >> $GITHUB_ENV
+          export THEOS="${{ github.workspace }}/theos-roothide"
+          git clone --recursive https://github.com/roothide/theos.git "$THEOS"
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
 
       - name: Build RootHide
         run: |
           set -e
-          export THEOS="${{ env.ROOTHIDE_THEOS }}"
           export PATH="$THEOS/bin:$PATH"
-
-          echo "================================"
-          echo "Build RootHide"
-          echo "================================"
-
           rm -rf .theos
-
           make package-roothide FINALPACKAGE=1
-
-          echo
-          echo "RootHide packages:"
-          find packages \
-            -type f \
-            -name "*.deb" \
-            -print \
-            | sort
 
       - name: Upload RootHide deb
         uses: actions/upload-artifact@v4
