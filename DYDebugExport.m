@@ -1,6 +1,9 @@
 #import "DYDebugExport.h"
 #import "DYDebugCapture.h"
+#import "DKClassDump.h"
+#import "DKZipWriter.h"
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 
 @implementation DYDebugExport
 
@@ -11,17 +14,13 @@
         if (error) {
             *error = [NSError errorWithDomain:@"DYDebugKit"
                                           code:1
-                                      userInfo:@{
-                NSLocalizedDescriptionKey : @"Snapshot is nil"
-            }];
+                                      userInfo:@{NSLocalizedDescriptionKey : @"Snapshot is nil"}];
         }
         return NO;
     }
 
-    NSString *root =
-        [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit"];
-
-    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit"];
+    NSFileManager *fm = NSFileManager.defaultManager;
     NSError *mkdirError = nil;
 
     if (![fm createDirectoryAtPath:root
@@ -34,17 +33,13 @@
 
     // 1. view-tree.txt
     NSString *viewTreePath = [root stringByAppendingPathComponent:@"view-tree.txt"];
-    NSData *viewTreeData = [snapshot.viewTree dataUsingEncoding:NSUTF8StringEncoding];
-    if (![viewTreeData writeToFile:viewTreePath options:NSDataWritingAtomic error:error]) {
-        return NO;
-    }
+    if (![[snapshot.viewTree dataUsingEncoding:NSUTF8StringEncoding]
+          writeToFile:viewTreePath options:NSDataWritingAtomic error:error]) return NO;
 
     // 2. view-controllers.txt
     NSString *viewControllersPath = [root stringByAppendingPathComponent:@"view-controllers.txt"];
-    NSData *viewControllersData = [snapshot.viewControllers dataUsingEncoding:NSUTF8StringEncoding];
-    if (![viewControllersData writeToFile:viewControllersPath options:NSDataWritingAtomic error:error]) {
-        return NO;
-    }
+    if (![[snapshot.viewControllers dataUsingEncoding:NSUTF8StringEncoding]
+          writeToFile:viewControllersPath options:NSDataWritingAtomic error:error]) return NO;
 
     // 3. metadata.json
     NSDictionary *metadata = @{
@@ -57,20 +52,14 @@
     NSData *metadataData = [NSJSONSerialization dataWithJSONObject:metadata
                                                            options:NSJSONWritingPrettyPrinted
                                                              error:error];
-    if (metadataData == nil) {
-        return NO;
-    }
+    if (!metadataData) return NO;
     NSString *metadataPath = [root stringByAppendingPathComponent:@"metadata.json"];
-    if (![metadataData writeToFile:metadataPath options:NSDataWritingAtomic error:error]) {
-        return NO;
-    }
+    if (![metadataData writeToFile:metadataPath options:NSDataWritingAtomic error:error]) return NO;
 
-    // 4. screenshot.png —— 必须在主线程执行，但当前线程若已经是主线程，绝不能再 dispatch_sync
+    // 4. screenshot.png（避免 dispatch_sync 死锁）
     __block NSData *pngData = nil;
-
     void (^captureBlock)(void) = ^{
         UIWindow *keyWindow = nil;
-
         if (@available(iOS 13.0, *)) {
             for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
                 if (![scene isKindOfClass:UIWindowScene.class]) continue;
@@ -82,14 +71,12 @@
                 if (keyWindow) break;
             }
         }
-
         if (keyWindow == nil) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
             keyWindow = UIApplication.sharedApplication.windows.firstObject;
 #pragma clang diagnostic pop
         }
-
         if (keyWindow == nil) return;
 
         UIGraphicsBeginImageContextWithOptions(keyWindow.bounds.size, NO, 0.0);
@@ -99,20 +86,78 @@
         pngData = UIImagePNGRepresentation(image);
     };
 
-    // 关键修复：避免 dispatch_sync 死锁
     if ([NSThread isMainThread]) {
         captureBlock();
     } else {
         dispatch_sync(dispatch_get_main_queue(), captureBlock);
     }
 
+    NSString *screenshotPath = nil;
     if (pngData != nil) {
-        NSString *screenshotPath = [root stringByAppendingPathComponent:@"screenshot.png"];
-        if (![pngData writeToFile:screenshotPath options:NSDataWritingAtomic error:error]) {
-            return NO;
+        screenshotPath = [root stringByAppendingPathComponent:@"screenshot.png"];
+        if (![pngData writeToFile:screenshotPath options:NSDataWritingAtomic error:error]) return NO;
+    }
+
+    // 5. headers/ —— class-dump 所有已加载的类
+    NSString *headersDir = [root stringByAppendingPathComponent:@"headers"];
+    if (![fm createDirectoryAtPath:headersDir
+       withIntermediateDirectories:YES attributes:nil error:nil]) {
+        headersDir = nil;
+    }
+
+    NSMutableArray<NSString *> *headerFiles = [NSMutableArray array];
+    if (headersDir) {
+        unsigned int classCount = 0;
+        Class *classes = objc_copyClassList(&classCount);
+        if (classes) {
+            for (unsigned int i = 0; i < classCount; i++) {
+                @autoreleasepool {
+                    Class cls = classes[i];
+                    if (!DKClassIsSafe(cls)) continue;
+
+                    NSString *name = NSStringFromClass(cls);
+                    if (name.length == 0) continue;
+                    if (DKClassNameIsRuntimeGenerated(name)) continue;
+
+                    // 只保留合法文件名（过滤 Swift / 带符号的名字）
+                    NSCharacterSet *invalid = [[NSCharacterSet
+                        characterSetWithCharactersInString:
+                        @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"]
+                        invertedSet];
+                    if ([name rangeOfCharacterFromSet:invalid].location != NSNotFound) continue;
+
+                    NSString *header = DKClassDumpHeaderForClass(cls);
+                    if (header.length == 0) continue;
+
+                    NSString *path = [headersDir stringByAppendingPathComponent:
+                                      [name stringByAppendingString:@".h"]];
+                    if ([header writeToFile:path atomically:YES
+                                   encoding:NSUTF8StringEncoding error:nil]) {
+                        [headerFiles addObject:path];
+                    }
+                }
+            }
+            free(classes);
         }
     }
 
+    // 6. 打包成 DYDebugKit.zip
+    NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit.zip"];
+    NSMutableArray<NSString *> *allFiles = [NSMutableArray arrayWithObjects:
+                                            metadataPath, viewTreePath, viewControllersPath, nil];
+    if (screenshotPath) [allFiles addObject:screenshotPath];
+    [allFiles addObjectsFromArray:headerFiles];
+
+    if (![DKZipWriter createZipAtPath:zipPath
+                              rootDir:root
+                                files:allFiles
+                             progress:nil
+                                error:error]) {
+        return NO;
+    }
+
+    NSLog(@"[DYDebugKit] Exported zip: %@ (%lu headers)",
+          zipPath, (unsigned long)headerFiles.count);
     return YES;
 }
 
