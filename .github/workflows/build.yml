@@ -7,6 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ============================================================
+  # Rootful
+  # ============================================================
   build-rootful:
     runs-on: macos-latest
     steps:
@@ -19,12 +22,24 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
 
+      - name: Install ldid
+        run: |
+          set -e
+          if ! command -v ldid >/dev/null 2>&1; then
+            brew install ldid
+          fi
+          ldid -v || true
+
       - name: Build Rootful
         run: |
           set -e
           export PATH="$THEOS/bin:$PATH"
           rm -rf .theos
           make package-rootful FINALPACKAGE=1
+
+          echo
+          echo "Rootful packages:"
+          find packages -type f -name "*.deb" -print | sort
 
       - name: Upload Rootful deb
         uses: actions/upload-artifact@v4
@@ -33,6 +48,9 @@ jobs:
           path: packages/*iphoneos-arm.deb
           if-no-files-found: error
 
+  # ============================================================
+  # Rootless
+  # ============================================================
   build-rootless:
     runs-on: macos-latest
     steps:
@@ -45,12 +63,24 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
 
+      - name: Install ldid
+        run: |
+          set -e
+          if ! command -v ldid >/dev/null 2>&1; then
+            brew install ldid
+          fi
+          ldid -v || true
+
       - name: Build Rootless
         run: |
           set -e
           export PATH="$THEOS/bin:$PATH"
           rm -rf .theos
           make package-rootless FINALPACKAGE=1
+
+          echo
+          echo "Rootless packages:"
+          find packages -type f -name "*.deb" -print | sort
 
       - name: Upload Rootless deb
         uses: actions/upload-artifact@v4
@@ -59,6 +89,9 @@ jobs:
           path: packages/*iphoneos-arm64.deb
           if-no-files-found: error
 
+  # ============================================================
+  # RootHide
+  # ============================================================
   build-roothide:
     runs-on: macos-latest
     steps:
@@ -71,12 +104,24 @@ jobs:
           git clone --recursive https://github.com/roothide/theos.git "$THEOS"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
 
+      - name: Install ldid
+        run: |
+          set -e
+          if ! command -v ldid >/dev/null 2>&1; then
+            brew install ldid
+          fi
+          ldid -v || true
+
       - name: Build RootHide
         run: |
           set -e
           export PATH="$THEOS/bin:$PATH"
           rm -rf .theos
           make package-roothide FINALPACKAGE=1
+
+          echo
+          echo "RootHide packages:"
+          find packages -type f -name "*.deb" -print | sort
 
       - name: Upload RootHide deb
         uses: actions/upload-artifact@v4
