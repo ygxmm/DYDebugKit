@@ -2,7 +2,7 @@
     entry = {
         bundle = "DYDebugKitPrefs";
         cell = PSLinkCell;
-        detail = "RootListController";
+        detail = "DYDebugKitRootListController";
         label = "DYDebugKit";
     };
 }
