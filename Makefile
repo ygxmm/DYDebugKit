@@ -2,7 +2,11 @@
 # DYDebugKit
 #
 
-TARGET = iphone:clang:latest:14.0
+ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
+TARGET = iphone:clang:16.5:15.0
+else
+TARGET = iphone:clang:13.7:8.0
+endif
 ARCHS = arm64 arm64e
 
 DY_VERSION := $(shell awk -F': *' '$$1 == "Version" { print $$2; exit }' control)
@@ -28,37 +32,30 @@ include $(THEOS)/makefiles/common.mk
 # Tweak
 # ============================================================
 TWEAK_NAME = DYDebugKit
-
-DYDebugKit_FILES = \
-    Entry.xm \
-    DYDebugCapture.m \
-    DYDebugExport.m \
-    DKClassDump.m \
-    DKZipWriter.m
-
+DYDebugKit_FILES = Entry.xm DYDebugCapture.m DYDebugExport.m DKClassDump.m DKZipWriter.m
 DYDebugKit_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
 DYDebugKit_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 DYDebugKit_LIBRARIES = z
-
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 # ============================================================
 # PreferenceBundle
-#   ★ 用通配符 *.m，不用管文件叫什么名字
 # ============================================================
 BUNDLE_NAME = DYDebugKitPrefs
-
 DYDebugKitPrefs_FILES = $(wildcard DYDebugKitPrefs/*.m)
-
 DYDebugKitPrefs_FRAMEWORKS = UIKit Foundation
 DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
-
-# ★ 关键：把 Info.plist 打进 bundle
-DYDebugKitPrefs_RESOURCE_FILES = \
-    DYDebugKitPrefs/Info.plist
-
 include $(THEOS_MAKE_PATH)/bundle.mk
+
+# ============================================================
+# 关键：Stage 入口 plist (参考 Choicy 的 internal-stage)
+# ============================================================
+internal-stage::
+	@echo ">>> Stage PreferenceLoader entry plist"
+	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences"
+	@cp -f "layout/Library/PreferenceLoader/Preferences/DYDebugKit.plist" \
+	    "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
 
 # ============================================================
 export THEOS_STRICT_LOGOS = 0
