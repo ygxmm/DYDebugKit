@@ -1,145 +1,91 @@
-name: Build DYDebugKit
+name: build deb
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
+    branches:
+      - main
+    paths:
+      - '*.h'
+      - '*.m'
+      - '*.mm'
+      - '*.x'
+      - '*.xm'
+      - '*.c'
+      - '*.cc'
+      - '*.cpp'
+      - '*.s'
+      - '*.S'
+      - '*.plist'
+      - 'control'
+      - 'Makefile'
+      - 'layout/**'
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
-  # ============================================================
-  # Rootful
-  # ============================================================
-  build-rootful:
+  build:
     runs-on: macos-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Theos
+      - name: Check cache
         run: |
-          set -e
-          export THEOS="${{ github.workspace }}/theos"
-          git clone --recursive https://github.com/theos/theos.git "$THEOS"
-          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          echo upstream_heads=`git ls-remote https://github.com/roothide/theos | head -n 1 | cut -f 1`-`git ls-remote https://github.com/theos/sdks | head -n 1 | cut -f 1` >> $GITHUB_ENV
 
-      - name: Install ldid
+      - name: Use cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/theos
+          key: ${{ runner.os }}-${{ env.upstream_heads }}
+
+      - name: Prepare Theos
+        uses: huami1314/theos-action@main
+
+      - name: Setup GNU Make
         run: |
-          set -e
-          if ! command -v ldid >/dev/null 2>&1; then
-            brew install ldid
-          fi
-          ldid -v || true
+          echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Clean packages dir
+        run: rm -rf packages && mkdir -p packages
 
       - name: Build Rootful
         run: |
-          set -e
-          export PATH="$THEOS/bin:$PATH"
-          rm -rf .theos
-          make package-rootful FINALPACKAGE=1
-
-          echo
-          echo "Rootful packages:"
-          find packages -type f -name "*.deb" -print | sort
-
-      - name: Upload Rootful deb
-        uses: actions/upload-artifact@v4
-        with:
-          name: DYDebugKit-rootful
-          path: packages/*iphoneos-arm.deb
-          if-no-files-found: error
-
-  # ============================================================
-  # Rootless
-  # ============================================================
-  build-rootless:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Theos
-        run: |
-          set -e
-          export THEOS="${{ github.workspace }}/theos"
-          git clone --recursive https://github.com/theos/theos.git "$THEOS"
-          echo "THEOS=$THEOS" >> $GITHUB_ENV
-
-      - name: Install ldid
-        run: |
-          set -e
-          if ! command -v ldid >/dev/null 2>&1; then
-            brew install ldid
-          fi
-          ldid -v || true
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          for f in packages/*.deb; do
+            [ -f "$f" ] && [[ "$f" != *"-root"*".deb" ]] && mv "$f" "${f%.deb}-rootful.deb"
+          done
 
       - name: Build Rootless
         run: |
-          set -e
-          export PATH="$THEOS/bin:$PATH"
-          rm -rf .theos
-          make package-rootless FINALPACKAGE=1
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          for f in packages/*.deb; do
+            [ -f "$f" ] && [[ "$f" != *"-root"*".deb" ]] && mv "$f" "${f%.deb}-rootless.deb"
+          done
 
-          echo
-          echo "Rootless packages:"
-          find packages -type f -name "*.deb" -print | sort
+      - name: Build Roothide
+        run: |
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          for f in packages/*.deb; do
+            [ -f "$f" ] && [[ "$f" != *"-root"*".deb" ]] && mv "$f" "${f%.deb}-roothide.deb"
+          done
 
-      - name: Upload Rootless deb
+      - name: Verify Deb packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          deb_files=(packages/*.deb)
+          echo "Found ${#deb_files[@]} packages:"
+          printf '  %s\n' "${deb_files[@]}"
+
+      - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: DYDebugKit-rootless
-          path: packages/*iphoneos-arm64.deb
-          if-no-files-found: error
-
-  # ============================================================
-  # RootHide
-  # ============================================================
-  build-roothide:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup RootHide Theos
-        run: |
-          set -e
-          export THEOS="${{ github.workspace }}/theos-roothide"
-          git clone --recursive https://github.com/roothide/theos.git "$THEOS"
-          echo "THEOS=$THEOS" >> $GITHUB_ENV
-
-      - name: Install ldid
-        run: |
-          set -e
-          if ! command -v ldid >/dev/null 2>&1; then
-            brew install ldid
-          fi
-          ldid -v || true
-
-      # ★★★ 用 media.githubusercontent.com 绕开 Git LFS ★★★
-      - name: Install iOS 14.5 SDK
-        run: |
-          set -e
-          export THEOS="${{ env.THEOS }}"
-          mkdir -p "$THEOS/sdks"
-          cd /tmp
-          curl -L -o iPhoneOS14.5.sdk.tar.xz \
-            https://media.githubusercontent.com/media/theos/sdks/master/iPhoneOS14.5.sdk.tar.xz
-          ls -la iPhoneOS14.5.sdk.tar.xz
-          tar -xf iPhoneOS14.5.sdk.tar.xz -C "$THEOS/sdks/"
-          echo "===== Installed SDKs ====="
-          ls -la "$THEOS/sdks/"
-
-      - name: Build RootHide
-        run: |
-          set -e
-          export PATH="$THEOS/bin:$PATH"
-          rm -rf .theos
-          make package-roothide FINALPACKAGE=1
-
-          echo
-          echo "RootHide packages:"
-          find packages -type f -name "*.deb" -print | sort
-
-      - name: Upload RootHide deb
-        uses: actions/upload-artifact@v4
-        with:
-          name: DYDebugKit-roothide
-          path: packages/*iphoneos-arm64e.deb
+          name: DYDebugKit-${{ github.run_number }}
+          path: ${{ github.workspace }}/packages/*.deb
           if-no-files-found: error
