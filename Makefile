@@ -77,7 +77,9 @@ DYDebugKitPrefs_FRAMEWORKS = \
     UIKit \
     Foundation
 
-DYDebugKitPrefs_PRIVATE_FRAMEWORKS = Preferences
+# 关键：不链接 Preferences 框架（GitHub Actions SDK 里没有），
+# 让 PSListController / PSSpecifier 等符号在运行时由 Settings.app 提供
+DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
