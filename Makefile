@@ -48,11 +48,15 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 BUNDLE_NAME = DYDebugKitPrefs
 
 DYDebugKitPrefs_FILES = \
-    DYDebugKitPrefs/DYDebugKitRootListController.m
+    DYDebugKitPrefs/RootListController.m
 
 DYDebugKitPrefs_FRAMEWORKS = UIKit Foundation
 DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
+
+# ★★★ 关键一行：把 Info.plist 打进 bundle ★★★
+DYDebugKitPrefs_RESOURCE_FILES = \
+    DYDebugKitPrefs/Info.plist
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
