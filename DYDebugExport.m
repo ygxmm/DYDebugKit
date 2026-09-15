@@ -65,30 +65,46 @@
         return NO;
     }
 
-    // 4. screenshot.png —— 必须在主线程执行
+    // 4. screenshot.png —— 必须在主线程执行，但当前线程若已经是主线程，绝不能再 dispatch_sync
     __block NSData *pngData = nil;
-    dispatch_sync(dispatch_get_main_queue(), ^{
+
+    void (^captureBlock)(void) = ^{
         UIWindow *keyWindow = nil;
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if (![scene isKindOfClass:UIWindowScene.class]) continue;
-            UIWindowScene *ws = (UIWindowScene *)scene;
-            if (ws.activationState != UISceneActivationStateForegroundActive) continue;
-            for (UIWindow *w in ws.windows) {
-                if (w.isKeyWindow) { keyWindow = w; break; }
+
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                if (![scene isKindOfClass:UIWindowScene.class]) continue;
+                UIWindowScene *ws = (UIWindowScene *)scene;
+                if (ws.activationState != UISceneActivationStateForegroundActive) continue;
+                for (UIWindow *w in ws.windows) {
+                    if (w.isKeyWindow) { keyWindow = w; break; }
+                }
+                if (keyWindow) break;
             }
-            if (keyWindow) break;
         }
+
         if (keyWindow == nil) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
             keyWindow = UIApplication.sharedApplication.windows.firstObject;
+#pragma clang diagnostic pop
         }
+
         if (keyWindow == nil) return;
 
         UIGraphicsBeginImageContextWithOptions(keyWindow.bounds.size, NO, 0.0);
-        [keyWindow drawViewHierarchyInRect:keyWindow.bounds afterScreenUpdates:YES];
+        [keyWindow drawViewHierarchyInRect:keyWindow.bounds afterScreenUpdates:NO];
         UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
         UIGraphicsEndImageContext();
         pngData = UIImagePNGRepresentation(image);
-    });
+    };
+
+    // 关键修复：避免 dispatch_sync 死锁
+    if ([NSThread isMainThread]) {
+        captureBlock();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), captureBlock);
+    }
 
     if (pngData != nil) {
         NSString *screenshotPath = [root stringByAppendingPathComponent:@"screenshot.png"];
