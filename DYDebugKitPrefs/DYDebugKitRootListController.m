@@ -196,10 +196,5 @@
     self.enabledApps[bid] = @([value boolValue]);
 }
 
-- (void)dealloc {
-    self.cachedSpecifiers = nil;
-    self.allApps = nil;
-    self.enabledApps = nil;
-}
 
 @end
