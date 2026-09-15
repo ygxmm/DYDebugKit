@@ -400,7 +400,6 @@ static void DYScanWindowsPeriodically(void) {
 #pragma mark - Constructor
 
 %ctor {
-    [@"injected " stringByAppendingString:[NSDate date].description] writeToFile:@"/var/mobile/Documents/dydebug_marker.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
     // 关键：先判断当前 App 是否被启用
     if (!DYIsCurrentAppEnabled()) {
         NSLog(@"[DYDebugKit] Not enabled for %@", [NSBundle mainBundle].bundleIdentifier);
