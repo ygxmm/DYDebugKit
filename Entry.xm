@@ -35,7 +35,9 @@ static BOOL DYIsCurrentAppEnabled(void) {
     if (data.length == 0) return NO;
     NSDictionary *enabled = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (![enabled isKindOfClass:NSDictionary.class]) return NO;
-    return [enabled[bid] boolValue];
+    BOOL enabled_ = [enabled[bid] boolValue];
+    NSLog(@"[DYDebugKit] ==enabled== %@ -> %d", bid, enabled_);
+    return enabled_;
 }
 
 #pragma mark - Forward
@@ -415,6 +417,7 @@ static void DYScanWindowsPeriodically(void) {
 #pragma mark - Constructor
 
 %ctor {
+    NSLog(@"[DYDebugKit] ==ctor== %@", [NSBundle mainBundle].bundleIdentifier);
     [[NSString stringWithFormat:@"injected %@", [NSDate date]] writeToFile:@"/var/tmp/dydebug_marker.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 //    if (!DYIsCurrentAppEnabled()) {
 //        NSLog(@"[DYDebugKit] Not enabled for %@", [NSBundle mainBundle].bundleIdentifier);
