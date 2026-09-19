@@ -31,7 +31,7 @@ TWEAK_NAME = DYDebugKit
 DYDebugKit_FILES = Entry.xm DYDebugCapture.m DYDebugExport.m DKClassDump.m DKZipWriter.m
 DYDebugKit_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
 DYDebugKit_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
-DYDebugKit_LIBRARIES = z
+DYDebugKit_LIBRARIES = z substrate
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 # ============================================================
