@@ -69,15 +69,16 @@ static void DYLoadAltListOnce(void) {
 }
 
 - (void)loadPrefs {
-    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
-    NSDictionary *enabled = dict[@"enabledApps"];
+    CFPreferencesAppSynchronize(CFSTR("com.ygxmm.dydebugkit"));
+    CFPropertyListRef value = CFPreferencesCopyAppValue(CFSTR("enabledApps"), CFSTR("com.ygxmm.dydebugkit"));
+    NSDictionary *enabled = (__bridge_transfer NSDictionary *)value;
     self.enabledApps = [enabled mutableCopy] ?: [NSMutableDictionary dictionary];
 }
 
 - (void)savePrefs {
     @try {
-        NSDictionary *d = @{ @"enabledApps": self.enabledApps ?: @{} };
-        [d writeToFile:kPrefsPath atomically:YES];
+        CFPreferencesSetAppValue(CFSTR("enabledApps"), (__bridge CFPropertyListRef)(self.enabledApps ?: @{}), CFSTR("com.ygxmm.dydebugkit"));
+        CFPreferencesAppSynchronize(CFSTR("com.ygxmm.dydebugkit"));
         notify_post("com.ygxmm.dydebugkit/reload");
     } @catch (NSException *e) {}
 

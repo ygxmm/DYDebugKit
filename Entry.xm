@@ -17,8 +17,10 @@ static BOOL DYIsCurrentAppEnabled(void) {
     NSString *bid = [NSBundle mainBundle].bundleIdentifier;
     if (bid.length == 0) return NO;
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
-    NSDictionary *dict = DYReadSharedPrefs();
-    NSDictionary *enabled = dict[@"enabledApps"];
+
+    CFPreferencesAppSynchronize(CFSTR("com.ygxmm.dydebugkit"));
+    CFPropertyListRef value = CFPreferencesCopyAppValue(CFSTR("enabledApps"), CFSTR("com.ygxmm.dydebugkit"));
+    NSDictionary *enabled = (__bridge_transfer NSDictionary *)value;
     if (![enabled isKindOfClass:NSDictionary.class]) return NO;
     return [enabled[bid] boolValue];
 }
