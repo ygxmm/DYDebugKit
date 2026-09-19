@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <notify.h>
+#import <roothide.h>
 
 #import "DYDebugCapture.h"
 #import "DYDebugExport.h"
@@ -19,18 +20,22 @@ static BOOL DYIsCurrentAppEnabled(void) {
     if (bid.length == 0) return NO;
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
 
-    CFStringRef appID = CFSTR("com.ygxmm.dydebugkit");
-    CFStringRef key = CFSTR("enabledApps");
-    CFPropertyListRef value = CFPreferencesCopyValue(key, appID,
-                                                     kCFPreferencesCurrentUser,
-                                                     kCFPreferencesAnyHost);
-    NSDictionary *enabled = (__bridge NSDictionary *)value;
-    BOOL r = NO;
-    if ([enabled isKindOfClass:NSDictionary.class]) {
-        r = [enabled[bid] boolValue];
+    NSString *path = jbroot(@"/var/mobile/Library/Preferences/dydebugkit.json");
+    int fd = open(path.UTF8String, O_RDONLY);
+    if (fd < 0) return NO;
+
+    NSMutableData *data = [NSMutableData data];
+    char buf[4096];
+    ssize_t n;
+    while ((n = read(fd, buf, sizeof(buf))) > 0) {
+        [data appendBytes:buf length:n];
     }
-    if (value) CFRelease(value);
-    return r;
+    close(fd);
+
+    if (data.length == 0) return NO;
+    NSDictionary *enabled = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![enabled isKindOfClass:NSDictionary.class]) return NO;
+    return [enabled[bid] boolValue];
 }
 
 #pragma mark - Forward
