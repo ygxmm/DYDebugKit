@@ -417,73 +417,25 @@ static void DYScanWindowsPeriodically(void) {
 #pragma mark - Constructor
 
 %ctor {
-    NSLog(@"[DYDebugKit] ==ctor== %@", [NSBundle mainBundle].bundleIdentifier);
-    [[NSString stringWithFormat:@"injected %@", [NSDate date]] writeToFile:@"/var/tmp/dydebug_marker.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
-//    if (!DYIsCurrentAppEnabled()) {
-//        NSLog(@"[DYDebugKit] Not enabled for %@", [NSBundle mainBundle].bundleIdentifier);
-//        return;
-//    }
+    NSString *bid = [NSBundle mainBundle].bundleIdentifier ?: @"?";
+    BOOL en = DYIsCurrentAppEnabled();
+    NSString *msg = [NSString stringWithFormat:@"ctor bid=%@ enabled=%d
+", bid, en];
+    NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit_ctor.txt"];
+    [msg writeToFile:tmp atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
-    NSLog(@"[DYDebugKit] Enabled for %@", [NSBundle mainBundle].bundleIdentifier);
+    if (!en) return;
 
     dispatch_async(dispatch_get_main_queue(), ^{
         DYAttachToCurrentWindows();
-
-        [[NSNotificationCenter defaultCenter]
-            addObserverForName:UIWindowDidBecomeKeyNotification
-                        object:nil
-                         queue:[NSOperationQueue mainQueue]
-                    usingBlock:^(NSNotification *note) {
-                        UIWindow *window = note.object;
-                        if (![window isKindOfClass:UIWindow.class]) return;
-                        DYInstallActivatorOnWindow(window);
-                    }];
-
-        [[NSNotificationCenter defaultCenter]
-            addObserverForName:UIWindowDidBecomeVisibleNotification
-                        object:nil
-                         queue:[NSOperationQueue mainQueue]
-                    usingBlock:^(NSNotification *note) {
-                        UIWindow *window = note.object;
-                        if (![window isKindOfClass:UIWindow.class]) return;
-                        DYInstallActivatorOnWindow(window);
-                    }];
-
-        if (@available(iOS 13.0, *)) {
-            [[NSNotificationCenter defaultCenter]
-                addObserverForName:UISceneDidActivateNotification
-                            object:nil
-                             queue:[NSOperationQueue mainQueue]
-                        usingBlock:^(__unused NSNotification *note) {
-                            DYAttachToCurrentWindows();
-                        }];
-
-            [[NSNotificationCenter defaultCenter]
-                addObserverForName:@"UISceneDidConnectNotification"
-                            object:nil
-                             queue:[NSOperationQueue mainQueue]
-                        usingBlock:^(__unused NSNotification *note) {
-                            DYAttachToCurrentWindows();
-                        }];
-        }
-
         [[NSNotificationCenter defaultCenter]
             addObserverForName:UIApplicationDidBecomeActiveNotification
-                        object:nil
-                         queue:[NSOperationQueue mainQueue]
+                        object:nil queue:[NSOperationQueue mainQueue]
                     usingBlock:^(__unused NSNotification *note) {
-                        DYAttachToCurrentWindows();
-                        DYShowOverlay();
-                    }];
-
-        DYScanWindowsPeriodically();
-
-        dispatch_after(
-            dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-            dispatch_get_main_queue(),
-            ^{
-                DYShowOverlay();
-            }
-        );
+            DYAttachToCurrentWindows();
+            DYShowOverlay();
+        }];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ DYShowOverlay(); });
     });
 }
