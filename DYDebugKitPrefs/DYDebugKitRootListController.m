@@ -234,12 +234,16 @@ static void DYLoadAltListOnce(void) {
         [sections[idx] addObject:app];
     }
 
-    for (NSString *letter in sortedKeys) {
+    NSArray *titles = [collation sectionIndexTitles];
+    for (NSInteger si = 0; si < sectionCount; si++) {
+        NSMutableArray *appsInSection = sections[si];
+        if (appsInSection.count == 0) continue;
+
         PSSpecifier *group = [PSSpecifier emptyGroupSpecifier];
-        group.name = letter;
+        group.name = titles[si];
         [specs addObject:group];
 
-        for (NSDictionary *app in groups[letter]) {
+        for (NSDictionary *app in appsInSection) {
             NSString *bid = app[@"bundleID"] ?: @"";
             NSString *name = app[@"name"] ?: bid;
             UIImage *icon = app[@"icon"];
