@@ -9,17 +9,17 @@
 
 #define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
+static NSDictionary *DYReadSharedPrefs(void) {
+    return [NSDictionary dictionaryWithContentsOfFile:@"/var/jb/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"];
+}
+
 static BOOL DYIsCurrentAppEnabled(void) {
     NSString *bid = [NSBundle mainBundle].bundleIdentifier;
     if (bid.length == 0) return NO;
-
-    // 系统守护进程不加载
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
-
-    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.ygxmm.dydebugkit"];
-    NSDictionary *enabled = [defaults objectForKey:@"enabledApps"];
+    NSDictionary *dict = DYReadSharedPrefs();
+    NSDictionary *enabled = dict[@"enabledApps"];
     if (![enabled isKindOfClass:NSDictionary.class]) return NO;
-
     return [enabled[bid] boolValue];
 }
 

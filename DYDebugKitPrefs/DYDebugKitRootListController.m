@@ -2,7 +2,7 @@
 #import <notify.h>
 #import <dlfcn.h>
 
-#define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
+#define kPrefsPath @"/var/jb/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
 @interface LSApplicationProxy : NSObject
 - (NSString *)applicationIdentifier;
