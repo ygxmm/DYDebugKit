@@ -4,21 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - '*.h'
-      - '*.m'
-      - '*.mm'
-      - '*.x'
-      - '*.xm'
-      - '*.c'
-      - '*.cc'
-      - '*.cpp'
-      - '*.s'
-      - '*.S'
-      - '*.plist'
-      - 'control'
-      - 'Makefile'
-      - 'layout/**'
   workflow_dispatch:
 
 permissions:
@@ -32,19 +17,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check cache
+      - name: Setup roothide Theos
         run: |
-          echo upstream_heads=`git ls-remote https://github.com/roothide/theos | head -n 1 | cut -f 1`-`git ls-remote https://github.com/theos/sdks | head -n 1 | cut -f 1` >> $GITHUB_ENV
+          set -e
+          export THEOS="${{ github.workspace }}/theos"
+          git clone --recursive https://github.com/roothide/theos.git "$THEOS"
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
 
-      - name: Use cache
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/theos
-          key: ${{ runner.os }}-${{ env.upstream_heads }}
-
-      - name: Prepare Theos
-        uses: huami1314/theos-action@main
+      - name: Install ldid
+        run: brew install ldid || true
 
       - name: Setup GNU Make
         run: |
@@ -53,35 +34,15 @@ jobs:
       - name: Clean packages dir
         run: rm -rf packages && mkdir -p packages
 
-      - name: Build Rootful
-        run: |
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-          for f in packages/*.deb; do
-            [ -f "$f" ] && [[ "$f" != *"-root"*".deb" ]] && mv "$f" "${f%.deb}-rootful.deb"
-          done
-
-      - name: Build Rootless
-        run: |
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-          for f in packages/*.deb; do
-            [ -f "$f" ] && [[ "$f" != *"-root"*".deb" ]] && mv "$f" "${f%.deb}-rootless.deb"
-          done
-
       - name: Build Roothide
         run: |
+          set -e
+          export PATH="$THEOS/bin:$PATH"
           make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-          for f in packages/*.deb; do
-            [ -f "$f" ] && [[ "$f" != *"-root"*".deb" ]] && mv "$f" "${f%.deb}-roothide.deb"
-          done
 
-      - name: Verify Deb packages
-        shell: bash
+      - name: Verify packages
         run: |
-          set -euo pipefail
-          shopt -s nullglob
-          deb_files=(packages/*.deb)
-          echo "Found ${#deb_files[@]} packages:"
-          printf '  %s\n' "${deb_files[@]}"
+          ls -la packages/*.deb
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
