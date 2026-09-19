@@ -3,6 +3,26 @@
 #import <dlfcn.h>
 #import <fcntl.h>
 #import <unistd.h>
+#import <mach-o/dyld.h>
+
+// 自己扫描 jbroot 目录，绕过 roothide.h
+static NSString *DYJBPath(NSString *path) {
+    static NSString *jbroot = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSArray *dirs = [fm contentsOfDirectoryAtPath:@"/var/mobile/Containers/Shared/AppGroup" error:nil];
+        for (NSString *d in dirs) {
+            if ([d hasPrefix:@".jbroot-"]) {
+                jbroot = [@"/var/mobile/Containers/Shared/AppGroup" stringByAppendingPathComponent:d];
+                break;
+            }
+        }
+    });
+    if (jbroot == nil) return path;
+    return [jbroot stringByAppendingPathComponent:path];
+}
+
 
 #define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
@@ -81,7 +101,7 @@ static void DYLoadAltListOnce(void) {
 }
 
 - (void)loadPrefs {
-    NSString *path = jbroot(@"/var/mobile/Library/Preferences/dydebugkit.json");
+    NSString *path = DYJBPath(@"/var/mobile/Library/Preferences/dydebugkit.json");
     int fd = open(path.UTF8String, O_RDONLY);
     if (fd >= 0) {
         NSMutableData *data = [NSMutableData data];
@@ -102,7 +122,7 @@ static void DYLoadAltListOnce(void) {
 - (void)savePrefs {
     @try {
         NSData *jsonData = [NSJSONSerialization dataWithJSONObject:self.enabledApps ?: @{} options:0 error:nil];
-        NSString *prefPath = jbroot(@"/var/mobile/Library/Preferences/dydebugkit.json");
+        NSString *prefPath = DYJBPath(@"/var/mobile/Library/Preferences/dydebugkit.json");
         int pfd = open(prefPath.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (pfd >= 0) { write(pfd, jsonData.bytes, jsonData.length); close(pfd); }
     } @catch (NSException *e) {}
@@ -122,7 +142,7 @@ static void DYLoadAltListOnce(void) {
 
     @try {
         NSData *xmlData = [xml dataUsingEncoding:NSUTF8StringEncoding];
-        NSString *plistPath = jbroot(@"/usr/lib/TweakInject/DYDebugKit.plist");
+        NSString *plistPath = DYJBPath(@"/usr/lib/TweakInject/DYDebugKit.plist");
         int fd = open(plistPath.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) { write(fd, xmlData.bytes, xmlData.length); close(fd); }
     } @catch (NSException *e) {}
@@ -226,7 +246,7 @@ static void DYLoadAltListOnce(void) {
                                                  set:@selector(setPreferenceValue:specifier:)
                                                  get:@selector(readPreferenceValue:)
                                               detail:nil
-                                                cell:PSSubtitleSwitchCell
+                                                cell:(PSCellType)(NSInteger)@"PSSubtitleSwitchCell"
                                                 edit:nil];
             [spec setProperty:bid forKey:@"bundleID"];
             [spec setProperty:bid forKey:@"subtitle"];
