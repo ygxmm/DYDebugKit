@@ -9,6 +9,7 @@
 - (NSString *)localizedName;
 - (NSString *)itemName;
 - (NSString *)bundleIdentifier;
+- (NSURL *)bundleURL;
 @end
 
 @interface LSApplicationWorkspace : NSObject
@@ -46,6 +47,8 @@ static void DYLoadAltListOnce(void) {
     });
 }
 
+#pragma mark - Lifecycle
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"DYDebugKit";
@@ -59,18 +62,30 @@ static void DYLoadAltListOnce(void) {
     [self rebuildSpecifiers];
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // 切后台回来时，PSListController 会清掉 specifiers，需要重建
+    if (self.allApps.count == 0) {
+        [self loadApps];
+    }
+    [self rebuildSpecifiers];
+}
+
+#pragma mark - Prefs I/O
+
 - (void)loadPrefs {
-    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.ygxmm.dydebugkit"];
-    NSDictionary *enabled = [defaults objectForKey:@"enabledApps"];
+    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
+    NSDictionary *enabled = dict[@"enabledApps"];
     self.enabledApps = [enabled mutableCopy] ?: [NSMutableDictionary dictionary];
 }
 
 - (void)savePrefs {
     @try {
-        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.ygxmm.dydebugkit"];
-        [defaults setObject:self.enabledApps ?: @{} forKey:@"enabledApps"]; [defaults synchronize];
+        NSDictionary *d = @{ @"enabledApps": self.enabledApps ?: @{} };
+        [d writeToFile:kPrefsPath atomically:YES];
         notify_post("com.ygxmm.dydebugkit/reload");
     } @catch (NSException *e) {}
+
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
                                            message:@"已保存，重启对应 App 后生效"
@@ -81,9 +96,12 @@ static void DYLoadAltListOnce(void) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
+#pragma mark - 枚举 App
+
 - (void)loadApps {
     DYLoadAltListOnce();
-    NSMutableDictionary<NSString *, NSString *> *dict = [NSMutableDictionary dictionary];
+
+    NSMutableDictionary<NSString *, NSDictionary *> *dict = [NSMutableDictionary dictionary];
 
     @try {
         Class wsClass = NSClassFromString(@"LSApplicationWorkspace");
@@ -100,48 +118,84 @@ static void DYLoadAltListOnce(void) {
                     NSString *bid = [proxy performSelector:@selector(applicationIdentifier)];
                     if (!bid.length) bid = [proxy performSelector:@selector(bundleIdentifier)];
                     if (!bid.length) continue;
-                    if ([bid hasPrefix:@"com.apple."]) continue;
+
                     NSString *name = [proxy performSelector:@selector(localizedName)];
                     if (!name.length) name = [proxy performSelector:@selector(itemName)];
                     if (!name.length) name = bid;
-                    dict[bid] = name;
+
+                    // 图标路径
+                    NSString *iconPath = nil;
+                    @try {
+                        NSURL *bundleURL = [proxy performSelector:@selector(bundleURL)];
+                        if (bundleURL.path.length > 0) {
+                            NSArray *candidates = @[
+                                @"AppIcon60x60@2x.png",
+                                @"AppIcon76x76@2x~iphone.png",
+                                @"AppIcon60x60@3x.png",
+                                @"Icon-60@2x.png",
+                                @"Icon@2x.png",
+                                @"Icon.png",
+                            ];
+                            for (NSString *c in candidates) {
+                                NSString *p = [bundleURL.path stringByAppendingPathComponent:c];
+                                if ([[NSFileManager defaultManager] fileExistsAtPath:p]) {
+                                    iconPath = p;
+                                    break;
+                                }
+                            }
+                        }
+                    } @catch (__unused NSException *e) {}
+
+                    NSMutableDictionary *item = [NSMutableDictionary dictionary];
+                    item[@"bundleID"] = bid;
+                    item[@"name"] = name;
+                    if (iconPath) item[@"iconPath"] = iconPath;
+
+                    dict[bid] = item;
                 } @catch (__unused NSException *e) {}
             }
         }
     } @catch (NSException *e) {}
 
-    NSMutableArray<NSDictionary *> *list = [NSMutableArray array];
-    for (NSString *bid in dict) {
-        [list addObject:@{ @"bundleID": bid, @"name": dict[bid] }];
-    }
-    [list sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+    NSArray *sorted = [dict.allValues sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
         return [a[@"name"] localizedCompare:b[@"name"]];
     }];
-    self.allApps = list;
+    self.allApps = sorted;
 }
+
+#pragma mark - Specifiers
 
 - (void)rebuildSpecifiers {
     NSMutableArray *specs = [NSMutableArray array];
 
     PSSpecifier *header = [PSSpecifier emptyGroupSpecifier];
-    header.name = [NSString stringWithFormat:@"共 %lu 个 App（系统已过滤）",
+    header.name = [NSString stringWithFormat:@"共 %lu 个 App（开关后重启对应 App 生效）",
                    (unsigned long)self.allApps.count];
     [specs addObject:header];
 
     for (NSDictionary *app in self.allApps) {
         NSString *bid = app[@"bundleID"] ?: @"";
         NSString *name = app[@"name"] ?: bid;
-        if (!name.length) name = @"Unknown";
+        NSString *iconPath = app[@"iconPath"];
 
+        // PSSubtitleSwitchCell = 开关 + 副标题（iOS 13+）
         PSSpecifier *spec =
             [PSSpecifier preferenceSpecifierNamed:name
                                           target:self
                                              set:@selector(setPreferenceValue:specifier:)
                                              get:@selector(readPreferenceValue:)
                                           detail:nil
-                                            cell:PSSwitchCell
+                                            cell:PSSubtitleSwitchCell
                                             edit:nil];
         [spec setProperty:bid forKey:@"bundleID"];
+        [spec setProperty:bid forKey:@"subtitle"];   // 副标题显示 bundleID
+
+        // 图标
+        if (iconPath.length > 0) {
+            NSURL *iconURL = [NSURL fileURLWithPath:iconPath];
+            [spec setProperty:iconURL forKey:@"iconURL"];
+        }
+
         [specs addObject:spec];
     }
 
