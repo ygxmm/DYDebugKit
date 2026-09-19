@@ -18,11 +18,19 @@ static BOOL DYIsCurrentAppEnabled(void) {
     if (bid.length == 0) return NO;
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
 
-    CFPreferencesAppSynchronize(CFSTR("com.ygxmm.dydebugkit"));
-    CFPropertyListRef value = CFPreferencesCopyAppValue(CFSTR("enabledApps"), CFSTR("com.ygxmm.dydebugkit"));
-    NSDictionary *enabled = (__bridge_transfer NSDictionary *)value;
-    if (![enabled isKindOfClass:NSDictionary.class]) return NO;
-    return [enabled[bid] boolValue];
+    CFStringRef appID = CFSTR("com.ygxmm.dydebugkit");
+    CFStringRef key = CFSTR("enabledApps");
+    CFPropertyListRef value = CFPreferencesCopyValue(key, appID,
+                                                     kCFPreferencesAnyUser,
+                                                     kCFPreferencesAnyHost);
+    NSDictionary *enabled = (__bridge NSDictionary *)value;
+    if (![enabled isKindOfClass:NSDictionary.class]) {
+        if (value) CFRelease(value);
+        return NO;
+    }
+    BOOL r = [enabled[bid] boolValue];
+    if (value) CFRelease(value);
+    return r;
 }
 
 #pragma mark - Forward
