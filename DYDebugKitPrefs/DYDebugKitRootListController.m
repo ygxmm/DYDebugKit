@@ -1,11 +1,10 @@
 #import "DYDebugKitRootListController.h"
 #import <notify.h>
-#import <roothide.h>
+#import <dlfcn.h>
 #import <fcntl.h>
 #import <unistd.h>
-#import <dlfcn.h>
 
-#define kPrefsPath @"/var/jb/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
+#define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
 @interface LSApplicationProxy : NSObject
 - (NSString *)applicationIdentifier;
@@ -28,6 +27,15 @@
 @end
 
 @implementation DYDebugKitRootListController
+
+// 切后台回来时 PSListController 会清掉 _specifiers，
+// override getter 保证任何时候都是最新的。
+- (NSArray *)specifiers {
+    if (_specifiers == nil || _specifiers.count == 0) {
+        [self rebuildSpecifiers];
+    }
+    return _specifiers;
+}
 
 static void DYLoadAltListOnce(void) {
     static dispatch_once_t onceToken;
@@ -67,6 +75,7 @@ static void DYLoadAltListOnce(void) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self loadPrefs];
+    _specifiers = nil;          // 强制重建
     if (self.allApps.count == 0) [self loadApps];
     [self rebuildSpecifiers];
 }
@@ -76,11 +85,8 @@ static void DYLoadAltListOnce(void) {
     int fd = open(path.UTF8String, O_RDONLY);
     if (fd >= 0) {
         NSMutableData *data = [NSMutableData data];
-        char buf[4096];
-        ssize_t n;
-        while ((n = read(fd, buf, sizeof(buf))) > 0) {
-            [data appendBytes:buf length:n];
-        }
+        char buf[4096]; ssize_t n;
+        while ((n = read(fd, buf, sizeof(buf))) > 0) [data appendBytes:buf length:n];
         close(fd);
         if (data.length > 0) {
             NSDictionary *d = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
@@ -96,18 +102,36 @@ static void DYLoadAltListOnce(void) {
 - (void)savePrefs {
     @try {
         NSData *jsonData = [NSJSONSerialization dataWithJSONObject:self.enabledApps ?: @{} options:0 error:nil];
-        NSString *path = jbroot(@"/var/mobile/Library/Preferences/dydebugkit.json");
-        int fd = open(path.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd >= 0) {
-            write(fd, jsonData.bytes, jsonData.length);
-            close(fd);
+        NSString *prefPath = jbroot(@"/var/mobile/Library/Preferences/dydebugkit.json");
+        int pfd = open(prefPath.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (pfd >= 0) { write(pfd, jsonData.bytes, jsonData.length); close(pfd); }
+    } @catch (NSException *e) {}
+
+    NSMutableString *xml = [NSMutableString string];
+    [xml appendString:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"];
+    [xml appendString:@"<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"];
+    [xml appendString:@"<plist version=\"1.0\">\n<dict>\n<key>Filter</key>\n<dict>\n<key>Bundles</key>\n<array>\n"];
+    NSUInteger cnt = 0;
+    for (NSString *bid in self.enabledApps) {
+        if ([self.enabledApps[bid] boolValue]) {
+            [xml appendFormat:@"    <string>%@</string>\n", bid];
+            cnt++;
         }
+    }
+    [xml appendString:@"</array>\n</dict>\n</dict>\n</plist>\n"];
+
+    @try {
+        NSData *xmlData = [xml dataUsingEncoding:NSUTF8StringEncoding];
+        NSString *plistPath = jbroot(@"/usr/lib/TweakInject/DYDebugKit.plist");
+        int fd = open(plistPath.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) { write(fd, xmlData.bytes, xmlData.length); close(fd); }
     } @catch (NSException *e) {}
 
     notify_post("com.ygxmm.dydebugkit/reload");
+
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
-                                           message:@"已保存，重启对应 App 后生效"
+                                           message:[NSString stringWithFormat:@"已保存 %lu 个 App\n重启对应 App 后生效", (unsigned long)cnt]
                                     preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定"
                                               style:UIAlertActionStyleDefault
@@ -117,7 +141,6 @@ static void DYLoadAltListOnce(void) {
 
 - (void)loadApps {
     DYLoadAltListOnce();
-
     NSMutableDictionary<NSString *, NSDictionary *> *dict = [NSMutableDictionary dictionary];
 
     @try {
@@ -135,12 +158,10 @@ static void DYLoadAltListOnce(void) {
                     NSString *bid = [proxy performSelector:@selector(applicationIdentifier)];
                     if (!bid.length) bid = [proxy performSelector:@selector(bundleIdentifier)];
                     if (!bid.length) continue;
-
                     NSString *name = [proxy performSelector:@selector(localizedName)];
                     if (!name.length) name = [proxy performSelector:@selector(itemName)];
                     if (!name.length) name = bid;
 
-                    // 用私有 API 拿图标
                     UIImage *icon = nil;
                     @try {
                         SEL sel = @selector(iconDataForVariant:);
@@ -155,49 +176,63 @@ static void DYLoadAltListOnce(void) {
                     item[@"bundleID"] = bid;
                     item[@"name"] = name;
                     if (icon) item[@"icon"] = icon;
-
                     dict[bid] = item;
                 } @catch (__unused NSException *e) {}
             }
         }
     } @catch (NSException *e) {}
 
-    NSArray *sorted = [dict.allValues sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+    self.allApps = [dict.allValues sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
         return [a[@"name"] localizedCompare:b[@"name"]];
     }];
-    self.allApps = sorted;
 }
 
 - (void)rebuildSpecifiers {
     NSMutableArray *specs = [NSMutableArray array];
 
+    NSUInteger enabledCount = 0;
+    for (NSString *bid in self.enabledApps) {
+        if ([self.enabledApps[bid] boolValue]) enabledCount++;
+    }
     PSSpecifier *header = [PSSpecifier emptyGroupSpecifier];
-    header.name = [NSString stringWithFormat:@"共 %lu 个 App（开关后重启对应 App 生效）",
-                   (unsigned long)self.allApps.count];
+    header.name = [NSString stringWithFormat:@"已启用 %lu / 共 %lu 个 App",
+                   (unsigned long)enabledCount, (unsigned long)self.allApps.count];
     [specs addObject:header];
 
+    NSMutableDictionary<NSString *, NSMutableArray *> *groups = [NSMutableDictionary dictionary];
     for (NSDictionary *app in self.allApps) {
-        NSString *bid = app[@"bundleID"] ?: @"";
-        NSString *name = app[@"name"] ?: bid;
-        UIImage *icon = app[@"icon"];
+        NSString *name = app[@"name"] ?: @"?";
+        NSString *first = [[name substringToIndex:1] uppercaseString];
+        unichar c = [first characterAtIndex:0];
+        if (!(c >= 'A' && c <= 'Z')) first = @"#";
+        if (!groups[first]) groups[first] = [NSMutableArray array];
+        [groups[first] addObject:app];
+    }
+    NSArray *sortedKeys = [groups.allKeys sortedArrayUsingSelector:@selector(compare:)];
 
-        PSSpecifier *spec =
-            [PSSpecifier preferenceSpecifierNamed:name
-                                          target:self
-                                             set:@selector(setPreferenceValue:specifier:)
-                                             get:@selector(readPreferenceValue:)
-                                          detail:nil
-                                            cell:PSSwitchCell
-                                            edit:nil];
-        [spec setProperty:bid forKey:@"bundleID"];
-        [spec setProperty:bid forKey:@"subtitle"];
-        [spec setProperty:@"PSSubtitleSwitchCell" forKey:@"cell"];
+    for (NSString *letter in sortedKeys) {
+        PSSpecifier *group = [PSSpecifier emptyGroupSpecifier];
+        group.name = letter;
+        [specs addObject:group];
 
-        if (icon) {
-            [spec setProperty:icon forKey:@"iconImage"];
+        for (NSDictionary *app in groups[letter]) {
+            NSString *bid = app[@"bundleID"] ?: @"";
+            NSString *name = app[@"name"] ?: bid;
+            UIImage *icon = app[@"icon"];
+
+            PSSpecifier *spec =
+                [PSSpecifier preferenceSpecifierNamed:name
+                                              target:self
+                                                 set:@selector(setPreferenceValue:specifier:)
+                                                 get:@selector(readPreferenceValue:)
+                                              detail:nil
+                                                cell:PSSubtitleSwitchCell
+                                                edit:nil];
+            [spec setProperty:bid forKey:@"bundleID"];
+            [spec setProperty:bid forKey:@"subtitle"];
+            if (icon) [spec setProperty:icon forKey:@"iconImage"];
+            [specs addObject:spec];
         }
-
-        [specs addObject:spec];
     }
 
     [self setSpecifiers:specs];

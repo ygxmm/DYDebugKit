@@ -44,6 +44,7 @@ static BOOL DYIsCurrentAppEnabled(void) {
 
 @interface DYDebugOverlayController : UIViewController
 @property(nonatomic, strong) UIButton *button;
+@property(nonatomic, assign) BOOL exporting;
 @end
 
 @interface DYDebugOverlayWindow : UIWindow
@@ -142,42 +143,76 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
 - (void)performExportWithScope:(DYDebugExportScope)scope {
     UIWindow *target = DYDebugTargetWindow();
-    if (target == nil) {
-        [self showResult:@"找不到当前窗口"];
-        return;
-    }
-
+    if (target == nil) { [self showResult:@"找不到当前窗口"]; return; }
     DYDebugSnapshot *snapshot = DYDebugCaptureSnapshot(target);
-    if (snapshot == nil) {
-        [self showResult:@"无法创建调试快照"];
-        return;
-    }
+    if (snapshot == nil) { [self showResult:@"无法创建调试快照"]; return; }
 
-    NSError *error = nil;
-    BOOL success = [DYDebugExport exportSnapshot:snapshot scope:scope error:&error];
+    self.exporting = YES;
+    UIView *hud = [self showLoadingHUD:@"正在导出..."];
 
-    if (!success) {
-        NSLog(@"[DYDebugKit] Export failed: %@", error);
-        [self showResult:error.localizedDescription ?: @"导出失败"];
-        return;
-    }
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *error = nil;
+        BOOL success = [DYDebugExport exportSnapshot:snapshot scope:scope error:&error];
 
-    NSString *zipName = nil;
-    switch (scope) {
-        case DYDebugExportScopeCurrentPage:  zipName = @"DYDebugKit-page.zip";  break;
-        case DYDebugExportScopeCurrentApp:   zipName = @"DYDebugKit-app.zip";   break;
-        case DYDebugExportScopeCurrentAudio: zipName = @"DYDebugKit-audio.zip"; break;
-    }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.exporting = NO;
+            [self hideLoadingHUD:hud];
+            if (!success) {
+                [self showResult:error.localizedDescription ?: @"导出失败"];
+                return;
+            }
+            NSString *zipName = nil;
+            switch (scope) {
+                case DYDebugExportScopeCurrentPage:  zipName = @"DYDebugKit-page.zip";  break;
+                case DYDebugExportScopeCurrentApp:   zipName = @"DYDebugKit-app.zip";   break;
+                case DYDebugExportScopeCurrentAudio: zipName = @"DYDebugKit-audio.zip"; break;
+            }
+            NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:zipName];
+            NSString *workDirName = [zipName stringByReplacingOccurrencesOfString:@".zip" withString:@""];
+            NSString *workDir = [NSTemporaryDirectory() stringByAppendingPathComponent:workDirName];
+            [[NSFileManager defaultManager] removeItemAtPath:workDir error:nil];
+            NSLog(@"[DYDebugKit] Export succeeded: %@", zipPath);
+            [self shareZipAtPath:zipPath];
+        });
+    });
+}
 
-    NSString *zipPath = [DYDebugExportBaseDirectory() stringByAppendingPathComponent:zipName];
+- (UIView *)showLoadingHUD:(NSString *)text {
+    UIView *hud = [[UIView alloc] initWithFrame:self.view.bounds];
+    hud.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
+    hud.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
-    NSString *workDirName = [zipName stringByReplacingOccurrencesOfString:@".zip" withString:@""];
-    NSString *workDir = [DYDebugExportBaseDirectory() stringByAppendingPathComponent:workDirName];
-    [[NSFileManager defaultManager] removeItemAtPath:workDir error:nil];
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 150, 150)];
+    box.center = CGPointMake(hud.bounds.size.width / 2.0, hud.bounds.size.height / 2.0);
+    box.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.9];
+    box.layer.cornerRadius = 16.0;
+    box.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
 
-    NSLog(@"[DYDebugKit] Export succeeded: %@", zipPath);
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
+    spinner.center = CGPointMake(75.0, 60.0);
+    spinner.color = UIColor.whiteColor;
+    [spinner startAnimating];
+    [box addSubview:spinner];
 
-    [self shareZipAtPath:zipPath];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(0, 105.0, 150.0, 30.0)];
+    label.text = text;
+    label.textColor = UIColor.whiteColor;
+    label.textAlignment = NSTextAlignmentCenter;
+    label.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightMedium];
+    [box addSubview:label];
+
+    [hud addSubview:box];
+    [self.view addSubview:hud];
+    hud.alpha = 0.0;
+    [UIView animateWithDuration:0.15 animations:^{ hud.alpha = 1.0; }];
+    return hud;
+}
+
+- (void)hideLoadingHUD:(UIView *)hud {
+    if (hud == nil) return;
+    [UIView animateWithDuration:0.15 animations:^{ hud.alpha = 0.0; } completion:^(BOOL finished) {
+        [hud removeFromSuperview];
+    }];
 }
 
 #pragma mark - 分享
@@ -252,6 +287,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     if (controller == nil) return NO;
 
+    if (controller.exporting) return YES;
     if (controller.presentedViewController != nil) return YES;
 
     if (controller.button == nil) return NO;
