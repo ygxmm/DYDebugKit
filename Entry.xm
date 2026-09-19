@@ -152,10 +152,10 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         case DYDebugExportScopeCurrentAudio: zipName = @"DYDebugKit-audio.zip"; break;
     }
 
-    NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:zipName];
+    NSString *zipPath = [DYDebugExportBaseDirectory() stringByAppendingPathComponent:zipName];
 
     NSString *workDirName = [zipName stringByReplacingOccurrencesOfString:@".zip" withString:@""];
-    NSString *workDir = [NSTemporaryDirectory() stringByAppendingPathComponent:workDirName];
+    NSString *workDir = [DYDebugExportBaseDirectory() stringByAppendingPathComponent:workDirName];
     [[NSFileManager defaultManager] removeItemAtPath:workDir error:nil];
 
     NSLog(@"[DYDebugKit] Export succeeded: %@", zipPath);

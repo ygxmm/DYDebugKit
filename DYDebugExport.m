@@ -147,7 +147,7 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
         return NO;
     }
 
-    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:DYScopeFolderName(scope)];
+    NSString *root = [DYDebugExportBaseDirectory() stringByAppendingPathComponent:DYScopeFolderName(scope)];
     NSFileManager *fm = NSFileManager.defaultManager;
     NSError *mkdirError = nil;
 
@@ -264,7 +264,7 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
         }
     }
 
-    NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:DYScopeZipName(scope)];
+    NSString *zipPath = [DYDebugExportBaseDirectory() stringByAppendingPathComponent:DYScopeZipName(scope)];
     NSMutableArray<NSString *> *allFiles = [NSMutableArray arrayWithObjects:
                                             metadataPath, viewTreePath, viewControllersPath, nil];
     if (screenshotPath) [allFiles addObject:screenshotPath];
