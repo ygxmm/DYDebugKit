@@ -33,6 +33,7 @@ static NSString *DYJBPath(NSString *path) {
 - (NSString *)bundleIdentifier;
 - (NSURL *)bundleURL;
 - (NSData *)iconDataForVariant:(int)variant;
+- (UIImage *)atl_icon;
 @end
 
 @interface LSApplicationWorkspace : NSObject
@@ -184,10 +185,13 @@ static void DYLoadAltListOnce(void) {
 
                     UIImage *icon = nil;
                     @try {
-                        SEL sel = @selector(iconDataForVariant:);
-                        if ([proxy respondsToSelector:sel]) {
-                            NSData *data = [proxy performSelector:sel withObject:(__bridge id)(void *)2];
-                            if (!data) data = [proxy performSelector:sel withObject:(__bridge id)(void *)0];
+                        // AltList 提供 atl_icon，跨进程拿图标
+                        if ([proxy respondsToSelector:@selector(atl_icon)]) {
+                            icon = [proxy performSelector:@selector(atl_icon)];
+                        }
+                        // 兜底：直接 iconDataForVariant
+                        if (icon == nil && [proxy respondsToSelector:@selector(iconDataForVariant:)]) {
+                            NSData *data = [proxy performSelector:@selector(iconDataForVariant:) withObject:(__bridge id)(void *)2];
                             if (data) icon = [UIImage imageWithData:data];
                         }
                     } @catch (__unused NSException *e) {}
@@ -219,16 +223,16 @@ static void DYLoadAltListOnce(void) {
                    (unsigned long)enabledCount, (unsigned long)self.allApps.count];
     [specs addObject:header];
 
-    NSMutableDictionary<NSString *, NSMutableArray *> *groups = [NSMutableDictionary dictionary];
+    UILocalizedIndexedCollation *collation = [UILocalizedIndexedCollation currentCollation];
+    NSInteger sectionCount = [collation sectionIndexTitles].count;
+    NSMutableArray<NSMutableArray *> *sections = [NSMutableArray array];
+    for (NSInteger i = 0; i < sectionCount; i++) [sections addObject:[NSMutableArray array]];
     for (NSDictionary *app in self.allApps) {
         NSString *name = app[@"name"] ?: @"?";
-        NSString *first = [[name substringToIndex:1] uppercaseString];
-        unichar c = [first characterAtIndex:0];
-        if (!(c >= 'A' && c <= 'Z')) first = @"#";
-        if (!groups[first]) groups[first] = [NSMutableArray array];
-        [groups[first] addObject:app];
+        NSInteger idx = [collation sectionForObject:@[name, app] collationStringSelector:@selector(firstObject)];
+        if (idx < 0 || idx >= sectionCount) idx = sectionCount - 1;
+        [sections[idx] addObject:app];
     }
-    NSArray *sortedKeys = [groups.allKeys sortedArrayUsingSelector:@selector(compare:)];
 
     for (NSString *letter in sortedKeys) {
         PSSpecifier *group = [PSSpecifier emptyGroupSpecifier];
@@ -246,7 +250,7 @@ static void DYLoadAltListOnce(void) {
                                                  set:@selector(setPreferenceValue:specifier:)
                                                  get:@selector(readPreferenceValue:)
                                               detail:nil
-                                                cell:(PSCellType)(NSInteger)@"PSSubtitleSwitchCell"
+                                                cell:PSSwitchCell
                                                 edit:nil];
             [spec setProperty:bid forKey:@"bundleID"];
             [spec setProperty:bid forKey:@"subtitle"];
