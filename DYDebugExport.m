@@ -19,15 +19,15 @@
 static void DYCollectViewClasses(UIView *view,
                                  NSMutableArray<Class> *result) {
     if (view == nil) return;
-
-    Class cls = view.class;
-    if (cls && ![result containsObject:cls]) {
-        [result addObject:cls];
-    }
-
-    for (UIView *sub in view.subviews) {
-        DYCollectViewClasses(sub, result);
-    }
+    @try {
+        Class cls = view.class;
+        if (cls && ![result containsObject:cls]) {
+            [result addObject:cls];
+        }
+        for (UIView *sub in view.subviews) {
+            DYCollectViewClasses(sub, result);
+        }
+    } @catch (__unused NSException *e) {}
 }
 
 static void DYCollectControllerClasses(UIViewController *vc,
@@ -37,18 +37,17 @@ static void DYCollectControllerClasses(UIViewController *vc,
     if ([visited containsObject:vc]) return;
     [visited addObject:vc];
 
-    Class cls = vc.class;
-    if (cls && ![result containsObject:cls]) {
-        [result addObject:cls];
-    }
-
-    for (UIViewController *child in vc.childViewControllers) {
-        DYCollectControllerClasses(child, result, visited);
-    }
-
-    DYCollectControllerClasses(vc.presentedViewController, result, visited);
-
-    DYCollectViewClasses(vc.view, result);
+    @try {
+        Class cls = vc.class;
+        if (cls && ![result containsObject:cls]) {
+            [result addObject:cls];
+        }
+        for (UIViewController *child in vc.childViewControllers) {
+            DYCollectControllerClasses(child, result, visited);
+        }
+        DYCollectControllerClasses(vc.presentedViewController, result, visited);
+        DYCollectViewClasses(vc.view, result);
+    } @catch (__unused NSException *e) {}
 }
 
 static NSArray<Class> *DYCollectClassesForScope(DYDebugExportScope scope) {
@@ -59,7 +58,12 @@ static NSArray<Class> *DYCollectClassesForScope(DYDebugExportScope scope) {
         Class *classes = objc_copyClassList(&count);
         if (classes) {
             for (unsigned int i = 0; i < count; i++) {
-                [result addObject:classes[i]];
+                @try {
+                    Class cls = classes[i];
+                    if (cls != Nil) {
+                        [result addObject:cls];
+                    }
+                } @catch (__unused NSException *e) {}
             }
             free(classes);
         }
@@ -88,23 +92,26 @@ static NSArray<Class> *DYCollectClassesForScope(DYDebugExportScope scope) {
         Class *classes = objc_copyClassList(&count);
         if (classes) {
             for (unsigned int i = 0; i < count; i++) {
-                Class cls = classes[i];
-                NSString *name = NSStringFromClass(cls);
-                if (name.length == 0) continue;
+                @try {
+                    Class cls = classes[i];
+                    if (cls == Nil) continue;
+                    NSString *name = NSStringFromClass(cls);
+                    if (name.length == 0) continue;
 
-                BOOL matched = NO;
-                for (NSUInteger k = 0; k < keywordCount; k++) {
-                    if ([name containsString:kKeywords[k]]) {
-                        matched = YES;
-                        break;
+                    BOOL matched = NO;
+                    for (NSUInteger k = 0; k < keywordCount; k++) {
+                        if ([name containsString:kKeywords[k]]) {
+                            matched = YES;
+                            break;
+                        }
                     }
-                }
-                if (!matched) {
-                    if ([name hasPrefix:@"AV"] || [name hasPrefix:@"MP"]) {
-                        matched = YES;
+                    if (!matched) {
+                        if ([name hasPrefix:@"AV"] || [name hasPrefix:@"MP"]) {
+                            matched = YES;
+                        }
                     }
-                }
-                if (matched) [result addObject:cls];
+                    if (matched) [result addObject:cls];
+                } @catch (__unused NSException *e) {}
             }
             free(classes);
         }
@@ -147,7 +154,7 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
         return NO;
     }
 
-    NSString *root = [DYDebugExportBaseDirectory() stringByAppendingPathComponent:DYScopeFolderName(scope)];
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:DYScopeFolderName(scope)];
     NSFileManager *fm = NSFileManager.defaultManager;
     NSError *mkdirError = nil;
 
@@ -186,31 +193,33 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
 
     __block NSData *pngData = nil;
     void (^captureBlock)(void) = ^{
-        UIWindow *keyWindow = nil;
-        if (@available(iOS 13.0, *)) {
-            for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-                if (![scene isKindOfClass:UIWindowScene.class]) continue;
-                UIWindowScene *ws = (UIWindowScene *)scene;
-                if (ws.activationState != UISceneActivationStateForegroundActive) continue;
-                for (UIWindow *w in ws.windows) {
-                    if (w.isKeyWindow) { keyWindow = w; break; }
+        @try {
+            UIWindow *keyWindow = nil;
+            if (@available(iOS 13.0, *)) {
+                for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                    if (![scene isKindOfClass:UIWindowScene.class]) continue;
+                    UIWindowScene *ws = (UIWindowScene *)scene;
+                    if (ws.activationState != UISceneActivationStateForegroundActive) continue;
+                    for (UIWindow *w in ws.windows) {
+                        if (w.isKeyWindow) { keyWindow = w; break; }
+                    }
+                    if (keyWindow) break;
                 }
-                if (keyWindow) break;
             }
-        }
-        if (keyWindow == nil) {
+            if (keyWindow == nil) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-            keyWindow = UIApplication.sharedApplication.windows.firstObject;
+                keyWindow = UIApplication.sharedApplication.windows.firstObject;
 #pragma clang diagnostic pop
-        }
-        if (keyWindow == nil) return;
+            }
+            if (keyWindow == nil) return;
 
-        UIGraphicsBeginImageContextWithOptions(keyWindow.bounds.size, NO, 0.0);
-        [keyWindow drawViewHierarchyInRect:keyWindow.bounds afterScreenUpdates:NO];
-        UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-        pngData = UIImagePNGRepresentation(image);
+            UIGraphicsBeginImageContextWithOptions(keyWindow.bounds.size, NO, 0.0);
+            [keyWindow drawViewHierarchyInRect:keyWindow.bounds afterScreenUpdates:NO];
+            UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+            pngData = UIImagePNGRepresentation(image);
+        } @catch (__unused NSException *e) {}
     };
 
     if ([NSThread isMainThread]) captureBlock();
@@ -241,30 +250,37 @@ static NSString *DYScopeZipName(DYDebugExportScope scope) {
 
         for (Class cls in classes) {
             @autoreleasepool {
-                if (!DKClassIsSafe(cls)) continue;
+                // ★ 关键：每个类外面套 @try，任何一个崩都不影响其它
+                @try {
+                    if (cls == Nil) continue;
+                    if (!DKClassIsSafe(cls)) continue;
 
-                NSString *name = NSStringFromClass(cls);
-                if (name.length == 0) continue;
-                if (DKClassNameIsRuntimeGenerated(name)) continue;
-                if ([seenNames containsObject:name]) continue;
-                [seenNames addObject:name];
+                    NSString *name = NSStringFromClass(cls);
+                    if (name.length == 0) continue;
+                    if (DKClassNameIsRuntimeGenerated(name)) continue;
+                    if ([seenNames containsObject:name]) continue;
 
-                if ([name rangeOfCharacterFromSet:invalid].location != NSNotFound) continue;
+                    if ([name rangeOfCharacterFromSet:invalid].location != NSNotFound) continue;
 
-                NSString *header = DKClassDumpHeaderForClass(cls);
-                if (header.length == 0) continue;
+                    NSString *header = DKClassDumpHeaderForClass(cls);
+                    if (header.length == 0) continue;
 
-                NSString *path = [headersDir stringByAppendingPathComponent:
-                                  [name stringByAppendingString:@".h"]];
-                if ([header writeToFile:path atomically:YES
-                               encoding:NSUTF8StringEncoding error:nil]) {
-                    [headerFiles addObject:path];
+                    [seenNames addObject:name];
+
+                    NSString *path = [headersDir stringByAppendingPathComponent:
+                                      [name stringByAppendingString:@".h"]];
+                    if ([header writeToFile:path atomically:YES
+                                   encoding:NSUTF8StringEncoding error:nil]) {
+                        [headerFiles addObject:path];
+                    }
+                } @catch (__unused NSException *e) {
+                    // 跳过这个类
                 }
             }
         }
     }
 
-    NSString *zipPath = [DYDebugExportBaseDirectory() stringByAppendingPathComponent:DYScopeZipName(scope)];
+    NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:DYScopeZipName(scope)];
     NSMutableArray<NSString *> *allFiles = [NSMutableArray arrayWithObjects:
                                             metadataPath, viewTreePath, viewControllersPath, nil];
     if (screenshotPath) [allFiles addObject:screenshotPath];

@@ -10,6 +10,7 @@
 - (NSString *)itemName;
 - (NSString *)bundleIdentifier;
 - (NSURL *)bundleURL;
+- (NSData *)iconDataForVariant:(int)variant;
 @end
 
 @interface LSApplicationWorkspace : NSObject
@@ -47,8 +48,6 @@ static void DYLoadAltListOnce(void) {
     });
 }
 
-#pragma mark - Lifecycle
-
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"DYDebugKit";
@@ -64,14 +63,10 @@ static void DYLoadAltListOnce(void) {
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    // 切后台回来时，PSListController 会清掉 specifiers，需要重建
-    if (self.allApps.count == 0) {
-        [self loadApps];
-    }
+    [self loadPrefs];
+    if (self.allApps.count == 0) [self loadApps];
     [self rebuildSpecifiers];
 }
-
-#pragma mark - Prefs I/O
 
 - (void)loadPrefs {
     NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:kPrefsPath];
@@ -95,8 +90,6 @@ static void DYLoadAltListOnce(void) {
                                             handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
-
-#pragma mark - 枚举 App
 
 - (void)loadApps {
     DYLoadAltListOnce();
@@ -123,33 +116,21 @@ static void DYLoadAltListOnce(void) {
                     if (!name.length) name = [proxy performSelector:@selector(itemName)];
                     if (!name.length) name = bid;
 
-                    // 图标路径
-                    NSString *iconPath = nil;
+                    // 用私有 API 拿图标
+                    UIImage *icon = nil;
                     @try {
-                        NSURL *bundleURL = [proxy performSelector:@selector(bundleURL)];
-                        if (bundleURL.path.length > 0) {
-                            NSArray *candidates = @[
-                                @"AppIcon60x60@2x.png",
-                                @"AppIcon76x76@2x~iphone.png",
-                                @"AppIcon60x60@3x.png",
-                                @"Icon-60@2x.png",
-                                @"Icon@2x.png",
-                                @"Icon.png",
-                            ];
-                            for (NSString *c in candidates) {
-                                NSString *p = [bundleURL.path stringByAppendingPathComponent:c];
-                                if ([[NSFileManager defaultManager] fileExistsAtPath:p]) {
-                                    iconPath = p;
-                                    break;
-                                }
-                            }
+                        SEL sel = @selector(iconDataForVariant:);
+                        if ([proxy respondsToSelector:sel]) {
+                            NSData *data = [proxy performSelector:sel withObject:(__bridge id)(void *)2];
+                            if (!data) data = [proxy performSelector:sel withObject:(__bridge id)(void *)0];
+                            if (data) icon = [UIImage imageWithData:data];
                         }
                     } @catch (__unused NSException *e) {}
 
                     NSMutableDictionary *item = [NSMutableDictionary dictionary];
                     item[@"bundleID"] = bid;
                     item[@"name"] = name;
-                    if (iconPath) item[@"iconPath"] = iconPath;
+                    if (icon) item[@"icon"] = icon;
 
                     dict[bid] = item;
                 } @catch (__unused NSException *e) {}
@@ -163,8 +144,6 @@ static void DYLoadAltListOnce(void) {
     self.allApps = sorted;
 }
 
-#pragma mark - Specifiers
-
 - (void)rebuildSpecifiers {
     NSMutableArray *specs = [NSMutableArray array];
 
@@ -176,9 +155,8 @@ static void DYLoadAltListOnce(void) {
     for (NSDictionary *app in self.allApps) {
         NSString *bid = app[@"bundleID"] ?: @"";
         NSString *name = app[@"name"] ?: bid;
-        NSString *iconPath = app[@"iconPath"];
+        UIImage *icon = app[@"icon"];
 
-        // PSSubtitleSwitchCell = 开关 + 副标题（iOS 13+）
         PSSpecifier *spec =
             [PSSpecifier preferenceSpecifierNamed:name
                                           target:self
@@ -188,12 +166,11 @@ static void DYLoadAltListOnce(void) {
                                             cell:PSSwitchCell
                                             edit:nil];
         [spec setProperty:bid forKey:@"bundleID"];
-        [spec setProperty:bid forKey:@"subtitle"];   // 副标题显示 bundleID
+        [spec setProperty:bid forKey:@"subtitle"];
+        [spec setProperty:@"PSSubtitleSwitchCell" forKey:@"cell"];
 
-        // 图标
-        if (iconPath.length > 0) {
-            NSURL *iconURL = [NSURL fileURLWithPath:iconPath];
-            [spec setProperty:iconURL forKey:@"iconURL"];
+        if (icon) {
+            [spec setProperty:icon forKey:@"iconImage"];
         }
 
         [specs addObject:spec];
