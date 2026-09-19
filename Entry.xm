@@ -400,11 +400,11 @@ static void DYScanWindowsPeriodically(void) {
 #pragma mark - Constructor
 
 %ctor {
-    [[NSString stringWithFormat:@"injected %@", [NSDate date]] writeToFile:@"/var/mobile/Documents/dydebug_marker.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    if (!DYIsCurrentAppEnabled()) {
-        NSLog(@"[DYDebugKit] Not enabled for %@", [NSBundle mainBundle].bundleIdentifier);
-        return;
-    }
+    [[NSString stringWithFormat:@"injected %@", [NSDate date]] writeToFile:@"/var/tmp/dydebug_marker.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
+//    if (!DYIsCurrentAppEnabled()) {
+//        NSLog(@"[DYDebugKit] Not enabled for %@", [NSBundle mainBundle].bundleIdentifier);
+//        return;
+//    }
 
     NSLog(@"[DYDebugKit] Enabled for %@", [NSBundle mainBundle].bundleIdentifier);
 
