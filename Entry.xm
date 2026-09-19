@@ -419,9 +419,9 @@ static void DYScanWindowsPeriodically(void) {
 %ctor {
     NSString *bid = [NSBundle mainBundle].bundleIdentifier ?: @"?";
     BOOL en = DYIsCurrentAppEnabled();
-    NSString *msg = [NSString stringWithFormat:@"ctor bid=%@ enabled=%d", bid, en];
+    NSString *line1 = [NSString stringWithFormat:@"ctor bid=%@ enabled=%d", bid, en];
     NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit_ctor.txt"];
-    [msg writeToFile:tmp atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    [line1 writeToFile:tmp atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
     if (!en) return;
 
