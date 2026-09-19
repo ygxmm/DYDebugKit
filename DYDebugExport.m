@@ -62,8 +62,8 @@ static NSArray<Class> *DYCollectMainBundleClasses(void) {
                 if (!cn || cn[0] == '\0') continue;
                 NSString *clsName = [NSString stringWithUTF8String:cn];
                 if (clsName.length == 0) continue;
-               ) Class cls = NSClassFromString(clsName);
-                if (cls != Nil [result addObject:cls];
+                Class cls = NSClassFromString(clsName);
+                if (cls != Nil) [result addObject:cls];
             } @catch (__unused NSException *e) {}
         }
         free(names);
