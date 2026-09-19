@@ -185,7 +185,7 @@ static void DYLoadAltListOnce(void) {
                                              set:@selector(setPreferenceValue:specifier:)
                                              get:@selector(readPreferenceValue:)
                                           detail:nil
-                                            cell:PSSubtitleSwitchCell
+                                            cell:(PSCellType)(NSInteger)@"PSSubtitleSwitchCell"
                                             edit:nil];
         [spec setProperty:bid forKey:@"bundleID"];
         [spec setProperty:bid forKey:@"subtitle"];   // 副标题显示 bundleID
