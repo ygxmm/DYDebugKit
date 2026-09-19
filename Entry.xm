@@ -13,24 +13,40 @@ static NSDictionary *DYReadSharedPrefs(void) {
     return [NSDictionary dictionaryWithContentsOfFile:@"/var/jb/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"];
 }
 
+#import <fcntl.h>
+#import <unistd.h>
+
+static NSDictionary *DYReadSharedPrefs(void) {
+    const char *paths[] = {
+        "/var/jb/var/mobile/Library/Preferences/dydebugkit.json",
+        "/var/mobile/Library/Preferences/dydebugkit.json",
+        NULL
+    };
+    for (int i = 0; paths[i]; i++) {
+        int fd = open(paths[i], O_RDONLY);
+        if (fd < 0) continue;
+        NSMutableData *data = [NSMutableData data];
+        char buf[4096];
+        ssize_t n;
+        while ((n = read(fd, buf, sizeof(buf))) > 0) {
+            [data appendBytes:buf length:n];
+        }
+        close(fd);
+        if (data.length == 0) continue;
+        NSDictionary *d = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if ([d isKindOfClass:NSDictionary.class]) return d;
+    }
+    return nil;
+}
+
 static BOOL DYIsCurrentAppEnabled(void) {
     NSString *bid = [NSBundle mainBundle].bundleIdentifier;
     if (bid.length == 0) return NO;
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
 
-    CFStringRef appID = CFSTR("com.ygxmm.dydebugkit");
-    CFStringRef key = CFSTR("enabledApps");
-    CFPropertyListRef value = CFPreferencesCopyValue(key, appID,
-                                                     kCFPreferencesAnyUser,
-                                                     kCFPreferencesAnyHost);
-    NSDictionary *enabled = (__bridge NSDictionary *)value;
-    if (![enabled isKindOfClass:NSDictionary.class]) {
-        if (value) CFRelease(value);
-        return NO;
-    }
-    BOOL r = [enabled[bid] boolValue];
-    if (value) CFRelease(value);
-    return r;
+    NSDictionary *enabled = DYReadSharedPrefs();
+    if (![enabled isKindOfClass:NSDictionary.class]) return NO;
+    return [enabled[bid] boolValue];
 }
 
 #pragma mark - Forward

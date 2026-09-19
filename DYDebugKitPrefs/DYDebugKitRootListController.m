@@ -1,5 +1,7 @@
 #import "DYDebugKitRootListController.h"
 #import <notify.h>
+#import <fcntl.h>
+#import <unistd.h>
 #import <dlfcn.h>
 
 #define kPrefsPath @"/var/jb/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
@@ -69,23 +71,36 @@ static void DYLoadAltListOnce(void) {
 }
 
 - (void)loadPrefs {
-    CFStringRef appID = CFSTR("com.ygxmm.dydebugkit");
-    CFStringRef key = CFSTR("enabledApps");
-    CFPropertyListRef value = CFPreferencesCopyValue(key, appID,
-                                                     kCFPreferencesAnyUser,
-                                                     kCFPreferencesAnyHost);
-    NSDictionary *enabled = (__bridge NSDictionary *)value;
-    self.enabledApps = [enabled mutableCopy] ?: [NSMutableDictionary dictionary];
-    if (value) CFRelease(value);
+    const char *path = "/var/jb/var/mobile/Library/Preferences/dydebugkit.json";
+    int fd = open(path, O_RDONLY);
+    if (fd >= 0) {
+        NSMutableData *data = [NSMutableData data];
+        char buf[4096];
+        ssize_t n;
+        while ((n = read(fd, buf, sizeof(buf))) > 0) {
+            [data appendBytes:buf length:n];
+        }
+        close(fd);
+        if (data.length > 0) {
+            NSDictionary *d = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            if ([d isKindOfClass:NSDictionary.class]) {
+                self.enabledApps = [d mutableCopy];
+                return;
+            }
+        }
+    }
+    self.enabledApps = [NSMutableDictionary dictionary];
 }
 
 - (void)savePrefs {
     @try {
-        CFPreferencesSetValue(CFSTR("enabledApps"),
-                              (__bridge CFPropertyListRef)(self.enabledApps ?: @{}),
-                              CFSTR("com.ygxmm.dydebugkit"),
-                              kCFPreferencesAnyUser,
-                              kCFPreferencesAnyHost);
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:self.enabledApps ?: @{} options:0 error:nil];
+        const char *savePath = "/var/jb/var/mobile/Library/Preferences/dydebugkit.json";
+        int saveFd = open(savePath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (saveFd >= 0) {
+            write(saveFd, jsonData.bytes, jsonData.length);
+            close(saveFd);
+        }
         CFPreferencesSynchronize(CFSTR("com.ygxmm.dydebugkit"),
                                  kCFPreferencesAnyUser,
                                  kCFPreferencesAnyHost);
