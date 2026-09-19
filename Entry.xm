@@ -9,9 +9,6 @@
 
 #define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
-static NSDictionary *DYReadSharedPrefs(void) {
-    return [NSDictionary dictionaryWithContentsOfFile:@"/var/jb/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"];
-}
 
 #import <fcntl.h>
 #import <unistd.h>
