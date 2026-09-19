@@ -94,6 +94,7 @@ static void DYLoadAltListOnce(void) {
 
 - (void)savePrefs {
     @try {
+        write(open("/tmp/dydebugkit_save_called.txt", O_WRONLY|O_CREAT|O_TRUNC, 0644), "1", 1);
         NSData *jsonData = [NSJSONSerialization dataWithJSONObject:self.enabledApps ?: @{} options:0 error:nil];
         const char *savePath = "/var/jb/var/mobile/Library/Preferences/dydebugkit.json";
         int saveFd = open(savePath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
