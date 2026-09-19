@@ -2,7 +2,7 @@
 # DYDebugKit
 #
 
-TARGET = iphone:clang:14.5:14.0
+TARGET = iphone:clang:latest:14.0
 ARCHS = arm64 arm64e
 
 DY_VERSION := $(shell awk -F': *' '$$1 == "Version" { print $$2; exit }' control)
