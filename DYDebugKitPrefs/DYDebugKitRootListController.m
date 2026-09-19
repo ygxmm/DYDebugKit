@@ -71,42 +71,26 @@ static void DYLoadAltListOnce(void) {
 }
 
 - (void)loadPrefs {
-    const char *path = "/var/jb/var/mobile/Library/Preferences/dydebugkit.json";
-    int fd = open(path, O_RDONLY);
-    if (fd >= 0) {
-        NSMutableData *data = [NSMutableData data];
-        char buf[4096];
-        ssize_t n;
-        while ((n = read(fd, buf, sizeof(buf))) > 0) {
-            [data appendBytes:buf length:n];
-        }
-        close(fd);
-        if (data.length > 0) {
-            NSDictionary *d = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            if ([d isKindOfClass:NSDictionary.class]) {
-                self.enabledApps = [d mutableCopy];
-                return;
-            }
-        }
-    }
-    self.enabledApps = [NSMutableDictionary dictionary];
+    CFStringRef appID = CFSTR("com.ygxmm.dydebugkit");
+    CFStringRef key = CFSTR("enabledApps");
+    CFPropertyListRef value = CFPreferencesCopyValue(key, appID,
+                                                     kCFPreferencesCurrentUser,
+                                                     kCFPreferencesAnyHost);
+    NSDictionary *enabled = (__bridge NSDictionary *)value;
+    self.enabledApps = [enabled mutableCopy] ?: [NSMutableDictionary dictionary];
+    if (value) CFRelease(value);
 }
 
 - (void)savePrefs {
-    @try {
-        write(open("/tmp/dydebugkit_save_called.txt", O_WRONLY|O_CREAT|O_TRUNC, 0644), "1", 1);
-        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:self.enabledApps ?: @{} options:0 error:nil];
-        const char *savePath = "/var/jb/var/mobile/Library/Preferences/dydebugkit.json";
-        int saveFd = open(savePath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (saveFd >= 0) {
-            write(saveFd, jsonData.bytes, jsonData.length);
-            close(saveFd);
-        }
-        CFPreferencesSynchronize(CFSTR("com.ygxmm.dydebugkit"),
-                                 kCFPreferencesAnyUser,
-                                 kCFPreferencesAnyHost);
-        notify_post("com.ygxmm.dydebugkit/reload");
-    } @catch (NSException *e) {}
+    CFStringRef appID = CFSTR("com.ygxmm.dydebugkit");
+    CFStringRef key = CFSTR("enabledApps");
+    CFPreferencesSetValue(key,
+                          (__bridge CFPropertyListRef)(self.enabledApps ?: @{}),
+                          appID,
+                          kCFPreferencesCurrentUser,
+                          kCFPreferencesAnyHost);
+    CFPreferencesSynchronize(appID, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    notify_post("com.ygxmm.dydebugkit/reload");
 
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"DYDebugKit"
