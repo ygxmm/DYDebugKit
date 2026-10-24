@@ -325,10 +325,27 @@ DKDebugExportResult *DKDebugCreateExport(DKDebugExportContext *context,
     NSString *rootName = [NSString stringWithFormat:@"DYKiller-Debug-%@%@-%lld",
                           DKModeName(mode), suffix,
                           (long long)NSDate.date.timeIntervalSince1970];
-    NSString *temporary = NSTemporaryDirectory();
-    NSString *appDir = [temporary stringByAppendingPathComponent:DKSafeFileName(bid)];
+    NSString *cacheRoot = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
+    if (cacheRoot.length == 0) cacheRoot = NSTemporaryDirectory();
+    NSString *appDir = [[cacheRoot stringByAppendingPathComponent:@"DYKiller"] stringByAppendingPathComponent:DKSafeFileName(bid)];
     NSFileManager *fm = NSFileManager.defaultManager;
     [fm createDirectoryAtPath:appDir withIntermediateDirectories:YES attributes:nil error:nil];
+
+    // 自动清理：每个 app 目录只保留最近 3 份导出，避免垃圾累积
+    NSArray<NSString *> *existingNames = [fm contentsOfDirectoryAtPath:appDir error:nil];
+    NSMutableArray<NSString *> *oldDirs = [NSMutableArray array];
+    for (NSString *n in existingNames) {
+        NSString *p = [appDir stringByAppendingPathComponent:n];
+        BOOL isDir = NO;
+        if ([fm fileExistsAtPath:p isDirectory:&isDir] && isDir) [oldDirs addObject:p];
+    }
+    [oldDirs sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        return [b compare:a];
+    }];
+    for (NSUInteger i = 3; i < oldDirs.count; i++) {
+        [fm removeItemAtPath:oldDirs[i] error:nil];
+    }
+
     NSString *rootDir = [appDir stringByAppendingPathComponent:rootName];
     NSString *zipPath = [appDir stringByAppendingPathComponent:[rootName stringByAppendingString:@".zip"]];
     [fm removeItemAtPath:rootDir error:nil];
