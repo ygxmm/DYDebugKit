@@ -25,7 +25,7 @@ static NSString *const DKExportErrorDomain = @"com.dykiller.debug-export";
 
 // 单个导出包的文件数上限。页面导出约 200 个、音频导出约 15 个，
 // 这道闸门只用来防止将来某处再写出失控的循环。
-static const NSUInteger kDKMaxExportFiles = 50000;
+static const NSUInteger kDKMaxExportFiles = 100000;
 
 @implementation DKDebugExportResult
 @end
@@ -245,9 +245,8 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
     for (int i = 0; i < count; i++) {
         @autoreleasepool {
             Class cls = classes[i];
-            if (!DKClassIsSafe(cls)) continue;
             NSString *name = NSStringFromClass(cls);
-            if (!name.length || DKClassNameIsRuntimeGenerated(name)) continue;
+            if (!name.length) continue;
             if ([seen containsObject:name]) continue;
             [seen addObject:name];
             [names addObject:name];
