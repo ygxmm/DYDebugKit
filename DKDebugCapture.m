@@ -6,6 +6,10 @@
 //  不递归读任意对象的 ivar 值。
 //
 
+#ifndef DK_VERSION
+#define DK_VERSION @"1.0.0"
+#endif
+
 #import "DKDebugCapture.h"
 #import "DKClassDump.h"
 #import <QuartzCore/QuartzCore.h>

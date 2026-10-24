@@ -10,6 +10,10 @@
 //    解释失败原因的东西不能跟着失败一起消失。
 //
 
+#ifndef DK_VERSION
+#define DK_VERSION @"1.0.0"
+#endif
+
 #import "DKDebugExport.h"
 #import "DKAudioProbe.h"
 #import "DKClassDump.h"
@@ -171,9 +175,9 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         [text appendString:@"- audio/diagnostics.json    符号覆盖、丢帧与自检结果\n"];
         [text appendString:@"- audio/pcm/                单声道 Float32 WAV 与各自的格式统计\n"];
         [text appendString:@"- probe/tabbar.txt          底栏现场\n- ui/screenshot.png\n\n"];
-        [text appendFormat:@"采样阶段固定为 %.0f 秒稳定、%.0f 秒 PCM、%.0f 秒收尾。探针不会改变播放状态。\n",
-         DKAudioProbeWarmupSeconds, DKAudioProbeRecordSeconds,
-         DKAudioProbeTotalSeconds - DKAudioProbeWarmupSeconds - DKAudioProbeRecordSeconds];
+        [text appendFormat:@"采样阶段固定为 %ld 秒稳定、%ld 秒 PCM、%ld 秒收尾。探针不会改变播放状态。\n",
+         (long)DKAudioProbeWarmupSeconds, (long)DKAudioProbeRecordSeconds,
+         (long)(DKAudioProbeTotalSeconds - DKAudioProbeWarmupSeconds - DKAudioProbeRecordSeconds)];
         [text appendFormat:@"用户标记: %@\n实际推断: %@\n", capture.declaredState ?: @"unknown",
          capture.actualState ?: @"unknown"];
     } else {
