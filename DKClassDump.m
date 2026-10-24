@@ -335,120 +335,136 @@ typedef struct {
 
 // 返回指定类名对应的 category 头文件文本数组
 // 格式：@interface ClassName (CategoryName) <Protocols> ... @end
-NSArray<NSString *> *DKClassDumpCategoriesForClass(Class cls) {
-    if (!cls) return @[];
+void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categoryName, NSString *headerText)) {
+    if (!cls || !writeBlock) return;
     NSString *clsName = NSStringFromClass(cls);
-    if (clsName.length == 0) return @[];
+    if (clsName.length == 0) return;
 
-    NSMutableArray<NSString *> *result = [NSMutableArray array];
     uint32_t imageCount = _dyld_image_count();
 
     for (uint32_t i = 0; i < imageCount; i++) {
         const struct mach_header *headerRaw = _dyld_get_image_header(i);
-        if (!headerRaw) continue;
-        if (headerRaw->magic != MH_MAGIC_64) continue;
+        if (!headerRaw || headerRaw->magic != MH_MAGIC_64) continue;
         const struct mach_header_64 *header = (const struct mach_header_64 *)headerRaw;
+
         unsigned long size = 0;
-        uintptr_t *catlist = NULL;
-        // 优先 __DATA_CONST，再试 __DATA
-        catlist = (uintptr_t *)getsectiondata(header, "__DATA_CONST", "__objc_catlist", &size);
-        if (!catlist) {
+        uintptr_t *catlist = (uintptr_t *)getsectiondata(header, "__DATA_CONST", "__objc_catlist", &size);
+        if (!catlist || size == 0) {
             catlist = (uintptr_t *)getsectiondata(header, "__DATA", "__objc_catlist", &size);
         }
         if (!catlist || size == 0) continue;
 
-        uintptr_t *end = catlist + (size / sizeof(uintptr_t));
-        for (uintptr_t *p = catlist; p < end; p++) {
-            DKCategory_t *cat = (DKCategory_t *)(*p);
-            if (!cat || !cat->name) continue;
-            if (cat->cls != (uintptr_t)(__bridge void *)cls) continue;
+        uintptr_t *endPtr = catlist + (size / sizeof(uintptr_t));
+        for (uintptr_t *p = catlist; p < endPtr; p++) {
+            @autoreleasepool {
+                DKCategory_t *cat = (DKCategory_t *)(*p);
+                if (!cat || !cat->name) continue;
+                if (cat->cls != (uintptr_t)(__bridge void *)cls) continue;
 
-            @try {
-                NSMutableString *h = [NSMutableString string];
-                [h appendFormat:@"@interface %@ (%@)", clsName, [NSString stringWithUTF8String:cat->name]];
+                // 校验 cat->name 是有效 C 字符串
+                size_t nameLen = strlen(cat->name);
+                if (nameLen == 0 || nameLen > 256) continue;
 
-                // 协议列表
-                if (cat->protocols) {
-                    // protocol_list_t: uintptr_t count; void *list[count];
-                    uintptr_t *pl = (uintptr_t *)cat->protocols;
-                    uintptr_t pcount = pl[0];
-                    if (pcount > 0) {
-                        [h appendString:@" <"];
-                        for (uintptr_t j = 0; j < pcount; j++) {
-                            Protocol *proto = (__bridge Protocol *)((void *)pl[j + 1]);
-                            if (proto) {
-                                const char *pn = protocol_getName(proto);
-                                if (pn) {
-                                    if (j > 0) [h appendString:@", "];
-                                    [h appendString:[NSString stringWithUTF8String:pn]];
+                @try {
+                    NSString *catName = [NSString stringWithUTF8String:cat->name];
+                    if (!catName) continue;
+
+                    NSMutableString *h = [NSMutableString string];
+                    [h appendFormat:@"@interface %@ (%@)", clsName, catName];
+
+                    // 协议列表
+                    if (cat->protocols) {
+                        uintptr_t *pl = (uintptr_t *)cat->protocols;
+                        uintptr_t pcount = pl[0];
+                        if (pcount > 0 && pcount < 1000) {
+                            NSMutableArray *protos = [NSMutableArray array];
+                            for (uintptr_t j = 0; j < pcount; j++) {
+                                Protocol *proto = (__bridge Protocol *)((void *)pl[j + 1]);
+                                if (proto) {
+                                    const char *pn = protocol_getName(proto);
+                                    if (pn) {
+                                        NSString *pnStr = [NSString stringWithUTF8String:pn];
+                                        if (pnStr) [protos addObject:pnStr];
+                                    }
                                 }
                             }
-                        }
-                        [h appendString:@">"];
-                    }
-                }
-                [h appendString:@"\n\n"];
-
-                // category 属性
-                if (cat->instanceProperties) {
-                    // property_list_t: uint32_t entsizeAndFlags; uint32_t count; property_t list[count];
-                    uint32_t *pl = (uint32_t *)cat->instanceProperties;
-                    uint32_t entsize = pl[0] & 0xFFFFFFFC;
-                    uint32_t count = pl[1];
-                    if (count > 0 && entsize >= 16) {
-                        for (uint32_t j = 0; j < count; j++) {
-                            uint8_t *entry = (uint8_t *)cat->instanceProperties + 8 + j * entsize;
-                            const char *pname = *(const char **)entry;
-                            const char *pattrs = *(const char **)(entry + 8);
-                            if (pname) {
-                                [h appendFormat:@"@property %s %s;\n",
-                                 pattrs ?: "", pname];
-                            }
-                        }
-                        [h appendString:@"\n"];
-                    }
-                }
-
-                // category 实例方法
-                if (cat->instanceMethods) {
-                    uint32_t *ml = (uint32_t *)cat->instanceMethods;
-                    uint32_t entsize = ml[0] & 0xFFFFFFFC;
-                    uint32_t count = ml[1];
-                    if (count > 0 && entsize >= 24) {
-                        for (uint32_t j = 0; j < count; j++) {
-                            uint8_t *entry = (uint8_t *)cat->instanceMethods + 8 + j * entsize;
-                            SEL sel = *(SEL *)entry;
-                            if (sel) {
-                                [h appendFormat:@"- (%s)%s;\n", "void", sel_getName(sel)];
+                            if (protos.count > 0) {
+                                [h appendFormat:@" <%@>", [protos componentsJoinedByString:@", "]];
                             }
                         }
                     }
-                }
+                    [h appendString:@"\n\n"];
 
-                // category 类方法
-                if (cat->classMethods) {
-                    uint32_t *ml = (uint32_t *)cat->classMethods;
-                    uint32_t entsize = ml[0] & 0xFFFFFFFC;
-                    uint32_t count = ml[1];
-                    if (count > 0 && entsize >= 24) {
-                        for (uint32_t j = 0; j < count; j++) {
-                            uint8_t *entry = (uint8_t *)cat->classMethods + 8 + j * entsize;
-                            SEL sel = *(SEL *)entry;
-                            if (sel) {
-                                [h appendFormat:@"+ (%s)%s;\n", "void", sel_getName(sel)];
+                    // category 属性
+                    if (cat->instanceProperties) {
+                        uint32_t *pl = (uint32_t *)cat->instanceProperties;
+                        uint32_t entsize = pl[0] & 0xFFFFFFFC;
+                        uint32_t count = pl[1];
+                        if (count > 0 && count < 10000 && entsize >= 16) {
+                            for (uint32_t j = 0; j < count; j++) {
+                                uint8_t *entry = (uint8_t *)cat->instanceProperties + 8 + j * entsize;
+                                const char *pname = *(const char **)entry;
+                                const char *pattrs = *(const char **)(entry + 8);
+                                // 校验指针
+                                if (!pname || strlen(pname) > 512) continue;
+                                if (pattrs && strlen(pattrs) > 512) pattrs = "";
+                                NSString *pNameStr = [NSString stringWithUTF8String:pname];
+                                if (!pNameStr) continue;
+                                [h appendFormat:@"@property %s %@;\n",
+                                 pattrs ?: "", pNameStr];
+                            }
+                            [h appendString:@"\n"];
+                        }
+                    }
+
+                    // category 实例方法
+                    if (cat->instanceMethods) {
+                        uint32_t *ml = (uint32_t *)cat->instanceMethods;
+                        uint32_t entsize = ml[0] & 0xFFFFFFFC;
+                        uint32_t count = ml[1];
+                        if (count > 0 && count < 10000 && entsize >= 24) {
+                            for (uint32_t j = 0; j < count; j++) {
+                                uint8_t *entry = (uint8_t *)cat->instanceMethods + 8 + j * entsize;
+                                SEL sel = *(SEL *)entry;
+                                if (!sel) continue;
+                                const char *selName = sel_getName(sel);
+                                if (!selName || strlen(selName) > 512) continue;
+                                NSString *selStr = [NSString stringWithUTF8String:selName];
+                                if (!selStr) continue;
+                                [h appendFormat:@"- (void)%@;\n", selStr];
                             }
                         }
                     }
-                }
 
-                [h appendString:@"@end\n"];
-                [result addObject:h];
-            } @catch (NSException *e) {
-                // 单个 category 失败不影响其他
+                    // category 类方法
+                    if (cat->classMethods) {
+                        uint32_t *ml = (uint32_t *)cat->classMethods;
+                        uint32_t entsize = ml[0] & 0xFFFFFFFC;
+                        uint32_t count = ml[1];
+                        if (count > 0 && count < 10000 && entsize >= 24) {
+                            for (uint32_t j = 0; j < count; j++) {
+                                uint8_t *entry = (uint8_t *)cat->classMethods + 8 + j * entsize;
+                                SEL sel = *(SEL *)entry;
+                                if (!sel) continue;
+                                const char *selName = sel_getName(sel);
+                                if (!selName || strlen(selName) > 512) continue;
+                                NSString *selStr = [NSString stringWithUTF8String:selName];
+                                if (!selStr) continue;
+                                [h appendFormat:@"+ (void)%@;\n", selStr];
+                            }
+                        }
+                    }
+
+                    [h appendString:@"@end\n"];
+
+                    // 直接回调，不累积
+                    writeBlock(catName, h);
+                } @catch (NSException *e) {
+                    // 单个 category 失败不影响其他
+                }
             }
         }
     }
-    return result;
 }
 
 #pragma mark - Mach-O 静态解析
