@@ -278,6 +278,7 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                 NSString *header = cls ? DKClassDumpHeaderForClass(cls) : nil;
                 if (!header.length) continue;
                 NSString *imageName = DKImageNameForClass(cls);
+                if ([imageName isEqualToString:@"tzyhb"]) continue;
                 NSString *relative = [@"classes" stringByAppendingPathComponent:
                                       [imageName stringByAppendingPathComponent:
                                        [DKSafeFileName(name) stringByAppendingString:@".h"]]];
