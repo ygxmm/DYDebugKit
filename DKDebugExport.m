@@ -283,12 +283,10 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                 DKWriteString(sink, relative, header, NO);
 
                 // 追加 category 头文件（边遍历边写，不累积）
-                __block NSUInteger catIdx = 0;
                 DKClassDumpCategoriesForClass(cls, ^(NSString *categoryName, NSString *headerText) {
                     NSString *catRel = [NSString stringWithFormat:@"classes/%@/%@+%@.h",
                                         imageName, DKSafeFileName(name), DKSafeFileName(categoryName)];
                     DKWriteString(sink, catRel, headerText, NO);
-                    catIdx++;
                 });
 
                 written++;
