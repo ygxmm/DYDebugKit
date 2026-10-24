@@ -65,6 +65,14 @@ tzyhb_CFLAGS += -Wno-error=enum-conversion
 tzyhb_CFLAGS += -Wno-error=incompatible-property-type
 tzyhb_CFLAGS += -Wno-error=direct-ivar-access
 tzyhb_CFLAGS += -Wno-error=objc-root-class
+tzyhb_CFLAGS += -Wno-error=sign-compare
+tzyhb_CFLAGS += -Wno-error=unused-but-set-variable
+tzyhb_CFLAGS += -Wno-error=deprecated-declarations
+tzyhb_CFLAGS += -Wno-error=tautological-compare
+tzyhb_CFLAGS += -Wno-error=unreachable-code
+tzyhb_CFLAGS += -Wno-error=unused-result
+tzyhb_CFLAGS += -Wno-error=switch
+tzyhb_CFLAGS += -Wno-error=objc-protocol-method-implementation
 tzyhb_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 tzyhb_LIBRARIES = z
 include $(THEOS_MAKE_PATH)/tweak.mk
