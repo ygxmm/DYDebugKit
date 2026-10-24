@@ -28,8 +28,20 @@ include $(THEOS)/makefiles/common.mk
 # Tweak
 # ============================================================
 TWEAK_NAME = tzyhb
-tzyhb_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m
+CD_CORE_FILES = $(wildcard classdump-core/Core/*.m) $(wildcard classdump-core/Cursors/*.m)
+CD_CORE_FILES += $(wildcard classdump-core/Extensions/*.m) $(wildcard classdump-core/Extras/*.m)
+CD_CORE_FILES += $(wildcard classdump-core/FileManagement/*.m) $(wildcard classdump-core/LoadCommands/*.m)
+CD_CORE_FILES += $(wildcard classdump-core/OC/*.m) $(wildcard classdump-core/ObjC/*.m)
+CD_CORE_FILES += $(wildcard classdump-core/Structure/*.m) $(wildcard classdump-core/Type/*.m)
+CD_CORE_FILES += $(wildcard classdump-core/Visitors/*.m)
+CD_CORE_FILES += DKStaticClassDump.m
+tzyhb_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m $(CD_CORE_FILES)
 tzyhb_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
+tzyhb_CFLAGS += -Iclassdump-core -include classdump-core/class-dump-Prefix.pch
+tzyhb_CFLAGS += -Iclassdump-core/Core -Iclassdump-core/Cursors -Iclassdump-core/Extensions
+tzyhb_CFLAGS += -Iclassdump-core/Extras -Iclassdump-core/FileManagement -Iclassdump-core/LoadCommands
+tzyhb_CFLAGS += -Iclassdump-core/OC -Iclassdump-core/ObjC -Iclassdump-core/Structure
+tzyhb_CFLAGS += -Iclassdump-core/Type -Iclassdump-core/Visitors
 tzyhb_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 tzyhb_LIBRARIES = z
 include $(THEOS_MAKE_PATH)/tweak.mk

@@ -15,6 +15,7 @@
 #endif
 
 #import "DKDebugExport.h"
+#import "DKStaticClassDump.h"
 #import "DKAudioProbe.h"
 #import "DKClassDump.h"
 #import "DKZipWriter.h"
@@ -297,6 +298,25 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
         }
     }
     if (progress) progress([NSString stringWithFormat:@"全部类导出完成：%lu 个", (unsigned long)written]);
+
+    // ===== 静态解析 category（补充运行时拿不到的信息） =====
+    if (progress) progress(@"静态解析 category...");
+    NSString *binaryPath = NSBundle.mainBundle.executablePath;
+    if (binaryPath.length > 0) {
+        __block NSUInteger catCount = 0;
+        DKStaticDumpCategories(binaryPath, ^(NSString *className, NSString *categoryName, NSString *text) {
+            if (!className || !categoryName || !text) return;
+            NSString *safeClass = DKSafeFileName(className);
+            NSString *safeCat = DKSafeFileName(categoryName);
+            NSString *relative = [NSString stringWithFormat:@"classes/categories/%@+%@.h", safeClass, safeCat];
+            DKWriteString(sink, relative, text, NO);
+            catCount++;
+            if (progress && (catCount % 100) == 0) {
+                progress([NSString stringWithFormat:@"已解析 %lu 个 category...", (unsigned long)catCount]);
+            }
+        });
+        if (progress) progress([NSString stringWithFormat:@"category 解析完成：%lu 个", (unsigned long)catCount]);
+    }
 }
 
 #pragma mark - 音频内容
