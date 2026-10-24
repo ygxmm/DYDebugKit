@@ -15,6 +15,7 @@
 #endif
 
 #import "DKDebugExport.h"
+#import <mach-o/dyld.h>
 #import "DKStaticClassDump.h"
 #import "DKAudioProbe.h"
 #import "DKClassDump.h"
@@ -267,6 +268,38 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
         }
     }
     free(classes);
+
+    // iOS 16+ future class 兜底：
+    //   objc_getClassList 只返回已注册的类。iOS 16 引入 objc_setFutureClass 机制，
+    //   二进制里定义的类在首次使用前不会注册，抖音等巨型 App 会丢 40%+ 的类。
+    //   objc_copyClassNamesForImage 直接读 image 的 __objc_classlist 段，能看到全部类名。
+    if (progress) progress(@"补全 future class（iOS 16+）...");
+    {
+        uint32_t imgCount = _dyld_image_count();
+        NSUInteger futureAdded = 0;
+        for (uint32_t img = 0; img < imgCount; img++) {
+            @autoreleasepool {
+                const char *imgName = _dyld_get_image_name(img);
+                if (!imgName) continue;
+                unsigned int classCount = 0;
+                const char **classNames = objc_copyClassNamesForImage(imgName, &classCount);
+                if (!classNames) continue;
+                for (unsigned int i = 0; i < classCount; i++) {
+                    const char *cName = classNames[i];
+                    if (!cName) continue;
+                    NSString *name = [NSString stringWithUTF8String:cName];
+                    if (!name.length) continue;
+                    if ([seen containsObject:name]) continue;
+                    [seen addObject:name];
+                    [names addObject:name];
+                    futureAdded++;
+                }
+                free(classNames);
+            }
+        }
+        if (progress) progress([NSString stringWithFormat:@"future class 补全 %lu 个，总计 %lu 个",
+                                (unsigned long)futureAdded, (unsigned long)names.count]);
+    }
 
     if (progress) progress([NSString stringWithFormat:@"写入全部类头文件（%lu 个）...", (unsigned long)names.count]);
     NSArray<NSString *> *sorted = [names sortedArrayUsingSelector:@selector(compare:)];
