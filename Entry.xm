@@ -17,7 +17,7 @@ static BOOL DYIsCurrentAppEnabled(void) {
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
 
     // TrollFools 注入模式：注入即启用，不读任何配置文件
-    NSLog(@"[DYDebugKit] ==enabled== %@ -> 1 (injected)", bid);
+    NSLog(@"[tzyhb] ==enabled== %@ -> 1 (injected)", bid);
     return YES;
 }
 
@@ -83,7 +83,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     if (self.presentedViewController != nil) return;
 
     UIAlertController *sheet =
-        [UIAlertController alertControllerWithTitle:@"DYDebugKit"
+        [UIAlertController alertControllerWithTitle:@"tzyhb"
                                            message:@"选择导出范围"
                                     preferredStyle:UIAlertControllerStyleActionSheet];
 
@@ -136,7 +136,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
                 [self showResult:error.localizedDescription ?: @"导出失败"];
                 return;
             }
-            NSLog(@"[DYDebugKit] Export succeeded: %@", result.zipURL.path);
+            NSLog(@"[tzyhb] Export succeeded: %@", result.zipURL.path);
             [self shareZipAtPath:result.zipURL.path];
         });
     });
@@ -221,7 +221,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
 - (void)showResult:(NSString *)message {
     UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"DYDebugKit"
+        [UIAlertController alertControllerWithTitle:@"tzyhb"
                                            message:message
                                     preferredStyle:UIAlertControllerStyleAlert];
 
@@ -302,7 +302,7 @@ static void DYShowOverlay(void) {
         gWindow.rootViewController = [DYDebugOverlayController new];
         gWindow.hidden = NO;
 
-        NSLog(@"[DYDebugKit] Overlay shown");
+        NSLog(@"[tzyhb] Overlay shown");
     });
 }
 
@@ -421,7 +421,7 @@ static void DYScanWindowsPeriodically(void) {
     NSString *bid = [NSBundle mainBundle].bundleIdentifier ?: @"?";
     BOOL en = DYIsCurrentAppEnabled();
     NSString *line1 = [NSString stringWithFormat:@"ctor bid=%@ enabled=%d", bid, en];
-    NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:@"DYDebugKit_ctor.txt"];
+    NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:@"tzyhb_ctor.txt"];
     [line1 writeToFile:tmp atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
     if (!en) return;

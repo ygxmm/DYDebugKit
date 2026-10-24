@@ -47,6 +47,6 @@ jobs:
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: DYDebugKit-${{ github.run_number }}
+          name: tzyhb-${{ github.run_number }}
           path: ${{ github.workspace }}/packages/*.deb
           if-no-files-found: error

@@ -1,25 +1,25 @@
 #
-# DYDebugKit
+# tzyhb
 #
 
 TARGET = iphone:clang:latest:14.0
 ARCHS = arm64 arm64e
 
 DY_VERSION := $(shell awk -F': *' '$$1 == "Version" { print $$2; exit }' control)
-DYDEBUGKIT_PACKAGE_SCHEME ?= $(if $(THEOS_PACKAGE_SCHEME),$(THEOS_PACKAGE_SCHEME),rootful)
+TZYHB_PACKAGE_SCHEME ?= $(if $(THEOS_PACKAGE_SCHEME),$(THEOS_PACKAGE_SCHEME),rootful)
 
 ifeq ($(strip $(DY_VERSION)),)
 $(error Missing Version in control)
 endif
 
-ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),rootful)
+ifeq ($(TZYHB_PACKAGE_SCHEME),rootful)
 unexport THEOS_PACKAGE_SCHEME
-else ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),rootless)
+else ifeq ($(TZYHB_PACKAGE_SCHEME),rootless)
 export THEOS_PACKAGE_SCHEME = rootless
-else ifeq ($(DYDEBUGKIT_PACKAGE_SCHEME),roothide)
+else ifeq ($(TZYHB_PACKAGE_SCHEME),roothide)
 export THEOS_PACKAGE_SCHEME = roothide
 else
-$(error Unsupported DYDEBUGKIT_PACKAGE_SCHEME: $(DYDEBUGKIT_PACKAGE_SCHEME))
+$(error Unsupported TZYHB_PACKAGE_SCHEME: $(TZYHB_PACKAGE_SCHEME))
 endif
 
 include $(THEOS)/makefiles/common.mk
@@ -27,22 +27,22 @@ include $(THEOS)/makefiles/common.mk
 # ============================================================
 # Tweak
 # ============================================================
-TWEAK_NAME = DYDebugKit
-DYDebugKit_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m
-DYDebugKit_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
-DYDebugKit_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
-DYDebugKit_LIBRARIES = z
+TWEAK_NAME = tzyhb
+tzyhb_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m
+tzyhb_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
+tzyhb_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
+tzyhb_LIBRARIES = z
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 # ============================================================
 # PreferenceBundle
 # ============================================================
-BUNDLE_NAME = DYDebugKitPrefs
-DYDebugKitPrefs_FILES = $(wildcard DYDebugKitPrefs/*.m)
-DYDebugKitPrefs_FRAMEWORKS = UIKit Foundation
-DYDebugKitPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
-DYDebugKitPrefs_INSTALL_PATH = /Library/PreferenceBundles
-DYDebugKitPrefs_RESOURCE_DIRS = DYDebugKitPrefs/Resources
+BUNDLE_NAME = tzyhbPrefs
+tzyhbPrefs_FILES = $(wildcard tzyhbPrefs/*.m)
+tzyhbPrefs_FRAMEWORKS = UIKit Foundation
+tzyhbPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
+tzyhbPrefs_INSTALL_PATH = /Library/PreferenceBundles
+tzyhbPrefs_RESOURCE_DIRS = tzyhbPrefs/Resources
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
@@ -52,8 +52,8 @@ include $(THEOS_MAKE_PATH)/bundle.mk
 internal-stage::
 	@echo ">>> Stage PreferenceLoader entry plist"
 	@mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences"
-	@cp -f "layout/Library/PreferenceLoader/Preferences/DYDebugKit.plist" \
-	    "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/DYDebugKit.plist"
+	@cp -f "layout/Library/PreferenceLoader/Preferences/tzyhb.plist" \
+	    "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/tzyhb.plist"
 
 # ============================================================
 export THEOS_STRICT_LOGOS = 0
@@ -66,12 +66,12 @@ clean::
 
 package-rootful::
 	@rm -rf .theos
-	@$(MAKE) all package DYDEBUGKIT_PACKAGE_SCHEME=rootful FINALPACKAGE=1
+	@$(MAKE) all package TZYHB_PACKAGE_SCHEME=rootful FINALPACKAGE=1
 
 package-rootless::
 	@rm -rf .theos
-	@$(MAKE) all package DYDEBUGKIT_PACKAGE_SCHEME=rootless FINALPACKAGE=1
+	@$(MAKE) all package TZYHB_PACKAGE_SCHEME=rootless FINALPACKAGE=1
 
 package-roothide::
 	@rm -rf .theos
-	@$(MAKE) all package DYDEBUGKIT_PACKAGE_SCHEME=roothide FINALPACKAGE=1
+	@$(MAKE) all package TZYHB_PACKAGE_SCHEME=roothide FINALPACKAGE=1

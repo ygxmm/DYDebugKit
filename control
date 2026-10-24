@@ -1,9 +1,9 @@
-Package: com.ygxmm.dydebugkit
-Name: DYDebugKit
+Package: com.tzyhb.tzyhb
+Name: tzyhb
 Version: 1.0.0
 Architecture: iphoneos-arm
 Description: An iOS debug collection tweak.
-Maintainer: ygxmm
-Author: ygxmm
+Maintainer: tzyhb
+Author: tzyhb
 Section: Tweaks
 Depends: mobilesubstrate, preferenceloader, com.opa334.altlist

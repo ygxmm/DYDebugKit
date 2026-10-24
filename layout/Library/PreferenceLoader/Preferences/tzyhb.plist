@@ -1,0 +1,10 @@
+{
+    entry = {
+        bundle = "tzyhbPrefs";
+        cell = PSLinkCell;
+        detail = "tzyhbRootListController";
+        icon = "icon.png";
+        isController = true;
+        label = "tzyhb";
+    };
+}

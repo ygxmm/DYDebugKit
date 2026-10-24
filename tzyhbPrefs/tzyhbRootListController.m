@@ -1,4 +1,4 @@
-#import "DYDebugKitRootListController.h"
+#import "tzyhbRootListController.h"
 #import <notify.h>
 #import <dlfcn.h>
 #import <fcntl.h>
@@ -24,7 +24,7 @@ static NSString *DYJBPath(NSString *path) {
 }
 
 
-#define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
+#define kPrefsPath @"/var/mobile/Library/Preferences/com.tzyhb.tzyhb.plist"
 
 @interface LSApplicationProxy : NSObject
 - (NSString *)applicationIdentifier;
@@ -42,12 +42,12 @@ static NSString *DYJBPath(NSString *path) {
 - (NSArray *)atl_allInstalledApplications;
 @end
 
-@interface DYDebugKitRootListController ()
+@interface tzyhbRootListController ()
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *enabledApps;
 @property (nonatomic, strong) NSArray<NSDictionary *> *allApps;
 @end
 
-@implementation DYDebugKitRootListController
+@implementation tzyhbRootListController
 
 // 切后台回来时 PSListController 会清掉 _specifiers，
 // override getter 保证任何时候都是最新的。
@@ -82,7 +82,7 @@ static void DYLoadAltListOnce(void) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"DYDebugKit";
+    self.title = @"tzyhb";
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithTitle:@"保存"
                                          style:UIBarButtonItemStyleDone
@@ -143,15 +143,15 @@ static void DYLoadAltListOnce(void) {
 
     @try {
         NSData *xmlData = [xml dataUsingEncoding:NSUTF8StringEncoding];
-        NSString *plistPath = DYJBPath(@"/usr/lib/TweakInject/DYDebugKit.plist");
+        NSString *plistPath = DYJBPath(@"/usr/lib/TweakInject/tzyhb.plist");
         int fd = open(plistPath.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) { write(fd, xmlData.bytes, xmlData.length); close(fd); }
     } @catch (NSException *e) {}
 
-    notify_post("com.ygxmm.dydebugkit/reload");
+    notify_post("com.tzyhb.tzyhb/reload");
 
     UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"DYDebugKit"
+        [UIAlertController alertControllerWithTitle:@"tzyhb"
                                            message:[NSString stringWithFormat:@"已保存 %lu 个 App\n重启对应 App 后生效", (unsigned long)cnt]
                                     preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定"
