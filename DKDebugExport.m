@@ -281,6 +281,16 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                                       [imageName stringByAppendingPathComponent:
                                        [DKSafeFileName(name) stringByAppendingString:@".h"]]];
                 DKWriteString(sink, relative, header, NO);
+
+                // 追加 category 头文件
+                NSArray<NSString *> *cats = DKClassDumpCategoriesForClass(cls);
+                NSUInteger catIdx = 0;
+                for (NSString *catH in cats) {
+                    NSString *catRel = [NSString stringWithFormat:@"classes/%@/%@+%lu.h",
+                                        imageName, DKSafeFileName(name), (unsigned long)catIdx++];
+                    DKWriteString(sink, catRel, catH, NO);
+                }
+
                 written++;
                 if (progress && (written % 200) == 0) {
                     double pct = names.count > 0 ? (written * 100.0 / (double)names.count) : 0.0;

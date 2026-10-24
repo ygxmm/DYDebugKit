@@ -75,6 +75,18 @@ static BOOL DKIsLikelySwiftName(NSString *name) {
     return NO;
 }
 
+// Swift mangled name 简化：_TtC6LottieXXX → Lottie.XXX
+// 完整 demangle 需 libswiftCore 的 swift_demangle，这里只提取模块名
+NSString *DKDeduceSwiftModule(NSString *name) {
+    if (![name hasPrefix:@"_TtC"]) return nil;
+    const char *c = name.UTF8String + 4;
+    // 读模块名长度
+    int len = 0;
+    while (*c >= '0' && *c <= '9') { len = len * 10 + (*c - '0'); c++; }
+    if (len <= 0 || strlen(c) < (size_t)len) return nil;
+    return [[NSString alloc] initWithBytes:c length:len encoding:NSUTF8StringEncoding];
+}
+
 BOOL DKClassNameIsRuntimeGenerated(NSString *name) {
     if (name.length == 0) return YES;
     if ([name hasPrefix:@"NSKVONotifying_"]) return YES;   // KVO 运行时子类
@@ -220,9 +232,29 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 
         unsigned int protocolCount = 0;
         Protocol *__unsafe_unretained *protocols = class_copyProtocolList(cls, &protocolCount);
+        // 协议方法展开：在 @interface 后追加 @protocol 块
+        NSMutableString *protocolBlocks = [NSMutableString string];
         NSMutableArray *protocolNames = [NSMutableArray array];
         for (unsigned int i = 0; i < protocolCount; i++) {
             const char *pn = protocol_getName(protocols[i]);
+            if (pn) {
+                Protocol *p = protocols[i];
+                unsigned int instCount = 0, clsCount = 0;
+                struct objc_method_description *instM = protocol_copyMethodDescriptionList(p, YES, YES, &instCount);
+                struct objc_method_description *clsM = protocol_copyMethodDescriptionList(p, NO, YES, &clsCount);
+                if (instCount > 0 || clsCount > 0) {
+                    [protocolBlocks appendFormat:@"\n@protocol %s\n", pn];
+                    for (unsigned int j = 0; j < instCount; j++) {
+                        [protocolBlocks appendFormat:@"- (%s)%s;\n", "void", sel_getName(instM[j].name)];
+                    }
+                    for (unsigned int j = 0; j < clsCount; j++) {
+                        [protocolBlocks appendFormat:@"+ (%s)%s;\n", "void", sel_getName(clsM[j].name)];
+                    }
+                    [protocolBlocks appendString:@"@end\n\n"];
+                }
+                if (instM) free(instM);
+                if (clsM) free(clsM);
+            }
             if (pn) [protocolNames addObject:DKCString(pn)];
         }
         if (protocols) free(protocols);
@@ -257,8 +289,12 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
         Method *methods = class_copyMethodList(cls, &methodCount);
         if (methodCount > 0) [h appendString:@"\n#pragma mark - Instance Methods\n\n"];
         for (unsigned int i = 0; i < methodCount; i++) {
-            NSString *line = DKMethodLine(methods[i], NO);
-            if (line.length) [h appendFormat:@"%@\n", line];
+            @try {
+                NSString *line = DKMethodLine(methods[i], NO);
+                if (line.length) [h appendFormat:@"%@\n", line];
+            } @catch (NSException *e) {
+                [h appendFormat:@"// [method %u 解析失败]\n", i];
+            }
         }
         if (methods) free(methods);
 
@@ -273,6 +309,7 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
         if (classMethods) free(classMethods);
 
         [h appendString:@"\n@end\n"];
+        if (protocolBlocks.length > 0) [h appendString:protocolBlocks];
         return h;
     } @catch (__unused NSException *e) {
         return nil;
@@ -280,6 +317,138 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 }
 
 #pragma mark - 对外 API
+
+#pragma mark - Category 导出
+
+#include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
+
+// category_t 是私有结构，自己定义
+typedef struct {
+    const char *name;
+    uintptr_t cls;
+    uintptr_t instanceMethods;
+    uintptr_t classMethods;
+    uintptr_t protocols;
+    uintptr_t instanceProperties;
+} DKCategory_t;
+
+// 返回指定类名对应的 category 头文件文本数组
+// 格式：@interface ClassName (CategoryName) <Protocols> ... @end
+NSArray<NSString *> *DKClassDumpCategoriesForClass(Class cls) {
+    if (!cls) return @[];
+    NSString *clsName = NSStringFromClass(cls);
+    if (clsName.length == 0) return @[];
+
+    NSMutableArray<NSString *> *result = [NSMutableArray array];
+    uint32_t imageCount = _dyld_image_count();
+
+    for (uint32_t i = 0; i < imageCount; i++) {
+        const struct mach_header *header = _dyld_get_image_header(i);
+        if (!header) continue;
+        unsigned long size = 0;
+        uintptr_t *catlist = NULL;
+        // 优先 __DATA_CONST，再试 __DATA
+        catlist = (uintptr_t *)getsectiondata(header, "__DATA_CONST", "__objc_catlist", &size);
+        if (!catlist) {
+            catlist = (uintptr_t *)getsectiondata(header, "__DATA", "__objc_catlist", &size);
+        }
+        if (!catlist || size == 0) continue;
+
+        uintptr_t *end = catlist + (size / sizeof(uintptr_t));
+        for (uintptr_t *p = catlist; p < end; p++) {
+            DKCategory_t *cat = (DKCategory_t *)(*p);
+            if (!cat || !cat->name) continue;
+            if (cat->cls != (uintptr_t)(__bridge void *)cls) continue;
+
+            @try {
+                NSMutableString *h = [NSMutableString string];
+                [h appendFormat:@"@interface %@ (%@)", clsName, [NSString stringWithUTF8String:cat->name]];
+
+                // 协议列表
+                if (cat->protocols) {
+                    // protocol_list_t: uintptr_t count; void *list[count];
+                    uintptr_t *pl = (uintptr_t *)cat->protocols;
+                    uintptr_t pcount = pl[0];
+                    if (pcount > 0) {
+                        [h appendString:@" <"];
+                        for (uintptr_t j = 0; j < pcount; j++) {
+                            Protocol *proto = (__bridge Protocol *)((void *)pl[j + 1]);
+                            if (proto) {
+                                const char *pn = protocol_getName(proto);
+                                if (pn) {
+                                    if (j > 0) [h appendString:@", "];
+                                    [h appendString:[NSString stringWithUTF8String:pn]];
+                                }
+                            }
+                        }
+                        [h appendString:@">"];
+                    }
+                }
+                [h appendString:@"\n\n"];
+
+                // category 属性
+                if (cat->instanceProperties) {
+                    // property_list_t: uint32_t entsizeAndFlags; uint32_t count; property_t list[count];
+                    uint32_t *pl = (uint32_t *)cat->instanceProperties;
+                    uint32_t entsize = pl[0] & 0xFFFFFFFC;
+                    uint32_t count = pl[1];
+                    if (count > 0 && entsize >= 16) {
+                        for (uint32_t j = 0; j < count; j++) {
+                            uint8_t *entry = (uint8_t *)cat->instanceProperties + 8 + j * entsize;
+                            const char *pname = *(const char **)entry;
+                            const char *pattrs = *(const char **)(entry + 8);
+                            if (pname) {
+                                [h appendFormat:@"@property %s %s;\n",
+                                 pattrs ?: "", pname];
+                            }
+                        }
+                        [h appendString:@"\n"];
+                    }
+                }
+
+                // category 实例方法
+                if (cat->instanceMethods) {
+                    uint32_t *ml = (uint32_t *)cat->instanceMethods;
+                    uint32_t entsize = ml[0] & 0xFFFFFFFC;
+                    uint32_t count = ml[1];
+                    if (count > 0 && entsize >= 24) {
+                        for (uint32_t j = 0; j < count; j++) {
+                            uint8_t *entry = (uint8_t *)cat->instanceMethods + 8 + j * entsize;
+                            SEL sel = *(SEL *)entry;
+                            const char *types = *(const char **)(entry + 8);
+                            if (sel) {
+                                [h appendFormat:@"- (%s)%s;\n", "void", sel_getName(sel)];
+                            }
+                        }
+                    }
+                }
+
+                // category 类方法
+                if (cat->classMethods) {
+                    uint32_t *ml = (uint32_t *)cat->classMethods;
+                    uint32_t entsize = ml[0] & 0xFFFFFFFC;
+                    uint32_t count = ml[1];
+                    if (count > 0 && entsize >= 24) {
+                        for (uint32_t j = 0; j < count; j++) {
+                            uint8_t *entry = (uint8_t *)cat->classMethods + 8 + j * entsize;
+                            SEL sel = *(SEL *)entry;
+                            if (sel) {
+                                [h appendFormat:@"+ (%s)%s;\n", "void", sel_getName(sel)];
+                            }
+                        }
+                    }
+                }
+
+                [h appendString:@"@end\n"];
+                [result addObject:h];
+            } @catch (NSException *e) {
+                // 单个 category 失败不影响其他
+            }
+        }
+    }
+    return result;
+}
 
 NSString *DKClassDumpHeaderForClass(Class cls) {
     if (!DKClassIsSafe(cls)) return nil;
