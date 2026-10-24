@@ -29,6 +29,12 @@ NSString *DKClassDumpHeaderForClass(Class cls);
 /// 通过扫描 Mach-O 的 __objc_catlist section 获得。
 NSArray<NSString *> *DKClassDumpCategoriesForClass(Class cls);
 
+/// 遍历所有已加载 image 的 __objc_classlist，返回 class_t* 数组
+NSArray<NSValue *> *DKClassDumpAllClassesFromMachO(void);
+
+/// 统计每个 image 的类数量（Phase 1 验证用）
+NSDictionary<NSString *, NSNumber *> *DKClassDumpCountClassesPerImage(void);
+
 #ifdef __cplusplus
 }
 #endif

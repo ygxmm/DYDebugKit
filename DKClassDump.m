@@ -451,6 +451,66 @@ NSArray<NSString *> *DKClassDumpCategoriesForClass(Class cls) {
     return result;
 }
 
+#pragma mark - Mach-O 静态解析
+
+#include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
+#include <mach-o/nlist.h>
+#include <objc/runtime.h>
+
+// 遍历所有已加载 image 的 __objc_classlist，返回 class_t* 数组
+// 运行时指针已重定位，直接解引用，不需要自己算 base address
+NSArray<NSValue *> *DKClassDumpAllClassesFromMachO(void) {
+    NSMutableArray<NSValue *> *result = [NSMutableArray array];
+    uint32_t imageCount = _dyld_image_count();
+
+    for (uint32_t i = 0; i < imageCount; i++) {
+        const struct mach_header *h = _dyld_get_image_header(i);
+        if (!h || h->magic != MH_MAGIC_64) continue;
+        const struct mach_header_64 *h64 = (const struct mach_header_64 *)h;
+
+        unsigned long size = 0;
+        uintptr_t *classlist = (uintptr_t *)getsectiondata(h64, "__DATA_CONST", "__objc_classlist", &size);
+        if (!classlist || size == 0) {
+            classlist = (uintptr_t *)getsectiondata(h64, "__DATA", "__objc_classlist", &size);
+        }
+        if (!classlist || size == 0) continue;
+
+        uintptr_t *end = classlist + (size / sizeof(uintptr_t));
+        for (uintptr_t *p = classlist; p < end; p++) {
+            uintptr_t cls = *p;
+            if (cls) [result addObject:[NSValue valueWithPointer:(void *)cls]];
+        }
+    }
+    return result;
+}
+
+// Phase 1 测试：统计每个 image 的类数量
+NSDictionary<NSString *, NSNumber *> *DKClassDumpCountClassesPerImage(void) {
+    NSMutableDictionary *counts = [NSMutableDictionary dictionary];
+    uint32_t imageCount = _dyld_image_count();
+
+    for (uint32_t i = 0; i < imageCount; i++) {
+        const struct mach_header *h = _dyld_get_image_header(i);
+        if (!h || h->magic != MH_MAGIC_64) continue;
+        const char *name = _dyld_get_image_name(i);
+        if (!name) continue;
+        NSString *imageName = [[NSString stringWithUTF8String:name] lastPathComponent];
+        const struct mach_header_64 *h64 = (const struct mach_header_64 *)h;
+
+        unsigned long size = 0;
+        uintptr_t *classlist = (uintptr_t *)getsectiondata(h64, "__DATA_CONST", "__objc_classlist", &size);
+        if (!classlist || size == 0) {
+            classlist = (uintptr_t *)getsectiondata(h64, "__DATA", "__objc_classlist", &size);
+        }
+        if (!classlist || size == 0) continue;
+
+        NSUInteger count = size / sizeof(uintptr_t);
+        counts[imageName] = @(count);
+    }
+    return counts;
+}
+
 NSString *DKClassDumpHeaderForClass(Class cls) {
     if (!DKClassIsSafe(cls)) return nil;
     NSString *imageName = @"Unknown";
