@@ -34,7 +34,7 @@ CD_CORE_FILES += $(wildcard classdump-core/FileManagement/*.m) $(wildcard classd
 CD_CORE_FILES += $(wildcard classdump-core/OC/*.m) $(wildcard classdump-core/ObjC/*.m)
 CD_CORE_FILES += $(wildcard classdump-core/Structure/*.m) $(wildcard classdump-core/Type/*.m)
 CD_CORE_FILES += $(wildcard classdump-core/Visitors/*.m)
-CD_CORE_FILES += $(wildcard classdump-core/Extras/*.c)
+CD_CORE_FILES += $(filter-out classdump-core/Extras/blowfish.c,$(wildcard classdump-core/Extras/*.c))
 CD_CORE_FILES += $(wildcard classdump-core/Extensions/*.mm)
 CD_CORE_FILES += DKStaticClassDump.m
 tzyhb_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m $(CD_CORE_FILES)
@@ -66,6 +66,7 @@ tzyhb_CFLAGS += -Wno-error=incompatible-property-type
 tzyhb_CFLAGS += -Wno-error=direct-ivar-access
 tzyhb_CFLAGS += -Wno-error=objc-root-class
 tzyhb_CFLAGS += -Wno-error=sign-compare
+tzyhb_CFLAGS += -Wno-error=vla-cxx-extension
 tzyhb_CFLAGS += -Wno-error=unused-but-set-variable
 tzyhb_CFLAGS += -Wno-error=deprecated-declarations
 tzyhb_CFLAGS += -Wno-error=tautological-compare
