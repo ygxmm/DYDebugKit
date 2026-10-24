@@ -146,7 +146,7 @@ static NSArray<NSString *> *DKParseTypeEncoding(NSString *enc) {
     while (i < enc.length) {
         unichar c = [enc characterAtIndex:i];
         if (c >= '0' && c <= '9') { i++; continue; }
-        if ([@"rnNoORV" characterIsMember:c]) { i++; continue; }
+        if (c == 'r' || c == 'n' || c == 'N' || c == 'o' || c == 'O' || c == 'R' || c == 'V') { i++; continue; }
         NSString *t = DKParseSingleType(enc, &i);
         if (t) [res addObject:t]; else i++;
     }
@@ -267,7 +267,7 @@ static void DKScanImage(uint32_t imageIndex,
             NSString *catName = @(cat->name);
             if (!catName.length) continue;
 
-            Class cls = (Class)cat->cls;
+            Class cls = (__bridge Class)cat->cls;
             if (!cls) continue;
             const char *clsNameC = class_getName(cls);
             if (!clsNameC) continue;
