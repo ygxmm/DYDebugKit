@@ -35,9 +35,13 @@ static BOOL DYIsCurrentAppEnabled(void) {
     if (data.length == 0) return NO;
     NSDictionary *enabled = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (![enabled isKindOfClass:NSDictionary.class]) return NO;
-    BOOL enabled_ = [enabled[bid] boolValue];
-    NSLog(@"[DYDebugKit] ==enabled== %@ -> %d", bid, enabled_);
-    return enabled_;
+    if (enabled[bid] != nil) {
+        BOOL enabled_ = [enabled[bid] boolValue];
+        NSLog(@"[DYDebugKit] ==enabled== %@ -> %d (json)", bid, enabled_);
+        return enabled_;
+    }
+    NSLog(@"[DYDebugKit] ==enabled== %@ -> 1 (default)", bid);
+    return YES;
 }
 
 #pragma mark - Forward

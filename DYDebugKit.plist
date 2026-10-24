@@ -6,8 +6,7 @@
     <dict>
         <key>Bundles</key>
         <array>
-            <string>net.colorfulclouds.app.pro</string>
-            <string>com.apple.mobilenotes</string>
+            <string>com.apple.UIKit</string>
         </array>
     </dict>
 </dict>
