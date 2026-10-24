@@ -20,12 +20,18 @@
 @implementation DKCategoryVisitor
 @end
 
+#pragma mark - darwinscope 参考常量
+
+// 来自 darwinscope src/ptrauth.rs:29
+// "Mask covering the user virtual-address window (low 48 bits)"
+// arm64e PAC 签名在 bits 48..63，低 48 位是有效 VA
+#define DK_PAC_MASK 0x0000FFFFFFFFFFFFULL
+
 #pragma mark - 崩溃隔离
 
 static sigjmp_buf gCrashJmp;
 static volatile int gCrashGuardActive = 0;
 static volatile int gCrashedThisAttempt = 0;
-static struct sigaction gOldSEGV, gOldBUS;
 
 static void DKCrashHandler(int sig) {
     if (gCrashGuardActive) {
@@ -33,7 +39,6 @@ static void DKCrashHandler(int sig) {
         gCrashedThisAttempt = 1;
         siglongjmp(gCrashJmp, 1);
     }
-    // 不在 guard 里，交还系统
     signal(sig, SIG_DFL);
     raise(sig);
 }
@@ -46,11 +51,10 @@ static void DKInstallCrashHandlers(void) {
     sa.sa_handler = DKCrashHandler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_NODEFER;
-    sigaction(SIGSEGV, &sa, &gOldSEGV);
-    sigaction(SIGBUS,  &sa, &gOldBUS);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS,  &sa, NULL);
 }
 
-// 带崩溃保护的执行块：返回值 0=正常完成，1=崩溃
 #define DK_TRY_BEGIN() \
     do { \
         gCrashedThisAttempt = 0; \
@@ -61,10 +65,11 @@ static void DKInstallCrashHandlers(void) {
         gCrashGuardActive = 0; \
     } while (0)
 
-#pragma mark - 地址校验
+#pragma mark - 工具函数
 
-static BOOL DKAddressInImage(uintptr_t addr, const struct mach_header_64 *header,
-                             intptr_t slide, size_t minLen) {
+// 检查地址是否落在某个 segment 内（保护 minLen 字节）
+static BOOL DKAddressInSegments(uintptr_t addr, const struct mach_header_64 *header,
+                                intptr_t slide, size_t minLen) {
     if (addr == 0) return NO;
     const struct load_command *cmd = (const struct load_command *)((const uint8_t *)header + sizeof(*header));
     for (uint32_t i = 0; i < header->ncmds; i++) {
@@ -89,33 +94,9 @@ static BOOL DKIsPrintableString(const char *p, size_t maxLen) {
     return NO;
 }
 
-#pragma mark - WrappedPtr 多策略解包
-
-// 尝试三种解包方式，返回第一个通过 image 地址检查的指针
-static void *DKResolveWrappedPtr(uintptr_t raw, void *fieldAddr,
-                                 const struct mach_header_64 *header, intptr_t slide) {
-    // ① relative（bit 0 = 1）
-    if (raw & 1) {
-        uintptr_t p = (uintptr_t)fieldAddr + ((intptr_t)raw & ~(intptr_t)1);
-        if (DKAddressInImage(p, header, slide, sizeof(void *))) return (void *)p;
-    }
-    // ② ptrauth-signed absolute（strip 高 24 位签名 + 低 3 位）
-    {
-        uintptr_t p = raw & 0x00007ffffffffff8ULL;
-        if (DKAddressInImage(p, header, slide, sizeof(void *))) return (void *)p;
-    }
-    // ③ 原值（普通 absolute）
-    if (DKAddressInImage(raw, header, slide, sizeof(void *))) return (void *)raw;
-    return NULL;
-}
-
-// 进一步校验：cls 的 isa 必须在 image 内
-static BOOL DKLooksLikeClass(void *clsPtr, const struct mach_header_64 *header, intptr_t slide) {
-    if (!clsPtr) return NO;
-    if (!DKAddressInImage((uintptr_t)clsPtr, header, slide, sizeof(void *) * 5)) return NO;
-    uintptr_t isa = *(uintptr_t *)clsPtr;
-    if (!DKAddressInImage(isa, header, slide, sizeof(void *))) return NO;
-    return YES;
+// darwinscope 的 strip_signature 等价实现：raw & 0x0000FFFFFFFFFFFF
+static inline uintptr_t DKStripPAC(uint64_t raw) {
+    return (uintptr_t)(raw & DK_PAC_MASK);
 }
 
 #pragma mark - 主入口
@@ -127,11 +108,11 @@ void DKStaticDumpCategories(NSString *binaryPath,
     if (!onCategory) return;
 
     DKInstallCrashHandlers();
-    NSLog(@"[DKStatic] scanning categories...");
+    NSLog(@"[DKStatic] scanning categories (darwinscope-style)...");
 
     uint32_t total = _dyld_image_count();
     NSUInteger totalCats = 0;
-    NSUInteger skippedCats = 0;
+    NSUInteger skipped = 0;
 
     for (uint32_t img = 0; img < total; img++) {
         @autoreleasepool {
@@ -143,6 +124,7 @@ void DKStaticDumpCategories(NSString *binaryPath,
             const struct mach_header_64 *header = (const struct mach_header_64 *)hdrRaw;
             intptr_t slide = _dyld_get_image_vmaddr_slide(img);
 
+            // 找 __objc_catlist / __objc_catlist2 段
             uintptr_t catlistAddr = 0;
             uint64_t  catlistSize = 0;
 
@@ -164,62 +146,69 @@ void DKStaticDumpCategories(NSString *binaryPath,
                 cmd = (const struct load_command *)((const uint8_t *)cmd + cmd->cmdsize);
             }
 
-            if (catlistAddr == 0 || catlistSize == 0) continue;
+            if (catlistAddr == 0 || catlistSize < 8) continue;
 
-            NSUInteger count = catlistSize / sizeof(uintptr_t);
-            uintptr_t *ptrs = (uintptr_t *)catlistAddr;
+            // darwinscope: catlist 项是 8 字节 u64（category.rs:171 off += 8）
+            NSUInteger count = catlistSize / 8;
+            uint64_t *slots = (uint64_t *)catlistAddr;
 
             NSUInteger catsThisImage = 0;
 
             for (NSUInteger i = 0; i < count; i++) {
                 @autoreleasepool {
-                    NSString *className = nil;
-                    NSString *catName = nil;
+                    uint64_t cat_raw = slots[i];
+                    uintptr_t catAddr = DKStripPAC(cat_raw);
 
-                    // 带崩溃保护的解包
-                    DK_TRY_BEGIN();
-                    {
-                        uintptr_t catAddr = ptrs[i];
-                        if (catAddr != 0 &&
-                            DKAddressInImage(catAddr, header, slide, 6 * sizeof(uintptr_t))) {
-
-                            uintptr_t *fields = (uintptr_t *)catAddr;
-
-                            // name 字段（普通指针）
-                            const char *nameC = (const char *)fields[0];
-                            if (DKAddressInImage((uintptr_t)nameC, header, slide, 1) &&
-                                DKIsPrintableString(nameC, 256)) {
-                                catName = [NSString stringWithUTF8String:nameC];
-                            }
-
-                            // cls 字段（WrappedPtr 多策略解包 + isa 校验）
-                            void *clsPtr = DKResolveWrappedPtr(fields[1], &fields[1], header, slide);
-                            if (DKLooksLikeClass(clsPtr, header, slide)) {
-                                @try {
-                                    const char *clsNameC = class_getName((__bridge Class)clsPtr);
-                                    if (clsNameC && DKIsPrintableString(clsNameC, 512)) {
-                                        className = [NSString stringWithUTF8String:clsNameC];
-                                    }
-                                } @catch (NSException *e) {
-                                    // 忽略 ObjC 异常
-                                }
-                            }
-                        }
-                    }
-                    DK_TRY_END();
-
-                    if (gCrashedThisAttempt) {
-                        skippedCats++;
+                    if (catAddr == 0) continue;
+                    // category_t 前 6 个 u64 = 48 字节
+                    if (!DKAddressInSegments(catAddr, header, slide, 48)) {
+                        skipped++;
                         continue;
                     }
 
-                    if (!catName.length) { skippedCats++; continue; }
-                    if (!className.length) className = @"_Unknown";
+                    uint64_t *fields = (uint64_t *)catAddr;
 
+                    // ① name (offset 0): u64 ptr
+                    uintptr_t namePtr = DKStripPAC(fields[0]);
+                    if (namePtr == 0) { skipped++; continue; }
+                    if (!DKAddressInSegments(namePtr, header, slide, 1)) {
+                        skipped++;
+                        continue;
+                    }
+                    const char *nameC = (const char *)namePtr;
+                    if (!DKIsPrintableString(nameC, 256)) { skipped++; continue; }
+                    NSString *catName = [NSString stringWithUTF8String:nameC];
+                    if (!catName.length) { skipped++; continue; }
+
+                    // ② cls (offset 8): u64 ptr，可能跨 image
+                    uintptr_t clsPtr = DKStripPAC(fields[1]);
+                    NSString *className = nil;
+
+                    if (clsPtr != 0) {
+                        // cls 可能跨 image，不用当前 header 做边界检查
+                        // 用 sigsetjmp 保护 class_getName，崩了跳过
+                        DK_TRY_BEGIN();
+                        {
+                            Class cls = (__bridge Class)(void *)clsPtr;
+                            const char *clsNameC = class_getName(cls);
+                            if (clsNameC && DKIsPrintableString(clsNameC, 512)) {
+                                className = [NSString stringWithUTF8String:clsNameC];
+                            }
+                        }
+                        DK_TRY_END();
+
+                        if (gCrashedThisAttempt) {
+                            className = nil;
+                        }
+                    }
+
+                    if (!className.length) className = @"_UnknownClass";
+
+                    // 输出（方法列表下轮补）
                     NSMutableString *text = [NSMutableString string];
                     [text appendString:@"//\n"];
                     [text appendFormat:@"// %@ (%@)\n", className, catName];
-                    [text appendString:@"// 静态扫描 __objc_catlist\n"];
+                    [text appendString:@"// 静态扫描 __objc_catlist (darwinscope-style)\n"];
                     [text appendString:@"// 注意: 方法列表待补全\n//\n\n"];
                     [text appendFormat:@"@interface %@ (%@)\n\n", className, catName];
                     [text appendString:@"@end\n"];
@@ -231,10 +220,10 @@ void DKStaticDumpCategories(NSString *binaryPath,
             }
 
             if (catsThisImage > 0) {
-                NSLog(@"[DKStatic] %s : %lu categories", imgName, (unsigned long)catsThisImage);
+                NSLog(@"[DKStatic] %s : %lu cats", imgName, (unsigned long)catsThisImage);
             }
         }
     }
 
-    NSLog(@"[DKStatic] total=%lu skipped=%lu", (unsigned long)totalCats, (unsigned long)skippedCats);
+    NSLog(@"[DKStatic] done: total=%lu skipped=%lu", (unsigned long)totalCats, (unsigned long)skipped);
 }
