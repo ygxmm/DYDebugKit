@@ -205,7 +205,7 @@ static void DKWritePageClasses(DKExportSink *sink, NSArray<NSString *> *classNam
                 NSString *header = cls ? DKClassDumpHeaderForClass(cls) : nil;
                 if (!header.length) continue;
                 NSString *relative = [@"page/classes" stringByAppendingPathComponent:
-                                      [DKUniqueFileStem(name) stringByAppendingString:@".h"]];
+                                      [DKSafeFileName(name) stringByAppendingString:@".h"]];
                 DKWriteString(sink, relative, header, NO);
             } @catch (NSException *exception) {
                 DKRecordError(sink, name, @"page-class",
@@ -264,12 +264,13 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                 NSString *header = cls ? DKClassDumpHeaderForClass(cls) : nil;
                 if (!header.length) continue;
                 NSString *relative = [@"classes" stringByAppendingPathComponent:
-                                      [DKUniqueFileStem(name) stringByAppendingString:@".h"]];
+                                      [DKSafeFileName(name) stringByAppendingString:@".h"]];
                 DKWriteString(sink, relative, header, NO);
                 written++;
                 if (progress && (written % 1000) == 0) {
-                    progress([NSString stringWithFormat:@"已导出 %lu / %lu 类",
-                              (unsigned long)written, (unsigned long)names.count]);
+                    double pct = names.count > 0 ? (written * 100.0 / (double)names.count) : 0.0;
+                    progress([NSString stringWithFormat:@"已导出 %lu / %lu（%.1f%%）",
+                              (unsigned long)written, (unsigned long)names.count, pct]);
                 }
             } @catch (NSException *exception) {
                 DKRecordError(sink, name, @"all-class",
@@ -320,13 +321,16 @@ DKDebugExportResult *DKDebugCreateExport(DKDebugExportContext *context,
 
     NSString *state = mode == DKDebugExportModeAudio ? (context.audioCapture.declaredState ?: @"unknown") : @"";
     NSString *suffix = state.length ? [NSString stringWithFormat:@"-%@", DKSafeFileName(state)] : @"";
-    NSString *rootName = [NSString stringWithFormat:@"DYKiller-Debug-%@%@-%@-%lld",
-                          DKModeName(mode), suffix, NSBundle.mainBundle.bundleIdentifier ?: @"Aweme",
+    NSString *bid = NSBundle.mainBundle.bundleIdentifier ?: @"Unknown";
+    NSString *rootName = [NSString stringWithFormat:@"DYKiller-Debug-%@%@-%lld",
+                          DKModeName(mode), suffix,
                           (long long)NSDate.date.timeIntervalSince1970];
     NSString *temporary = NSTemporaryDirectory();
-    NSString *rootDir = [temporary stringByAppendingPathComponent:rootName];
-    NSString *zipPath = [temporary stringByAppendingPathComponent:[rootName stringByAppendingString:@".zip"]];
+    NSString *appDir = [temporary stringByAppendingPathComponent:DKSafeFileName(bid)];
     NSFileManager *fm = NSFileManager.defaultManager;
+    [fm createDirectoryAtPath:appDir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *rootDir = [appDir stringByAppendingPathComponent:rootName];
+    NSString *zipPath = [appDir stringByAppendingPathComponent:[rootName stringByAppendingString:@".zip"]];
     [fm removeItemAtPath:rootDir error:nil];
     [fm removeItemAtPath:zipPath error:nil];
 
