@@ -324,14 +324,6 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 #include <mach-o/getsect.h>
 
 // category_t 是私有结构，自己定义
-typedef struct {
-    const char *name;
-    uintptr_t cls;
-    uintptr_t instanceMethods;
-    uintptr_t classMethods;
-    uintptr_t protocols;
-    uintptr_t instanceProperties;
-} DKCategory_t;
 
 // 返回指定类名对应的 category 头文件文本数组
 // 格式：@interface ClassName (CategoryName) <Protocols> ... @end
