@@ -3,8 +3,8 @@
 #import <notify.h>
 #import <roothide.h>
 
-#import "DYDebugCapture.h"
-#import "DYDebugExport.h"
+#import "DKDebugCapture.h"
+#import "DKDebugExport.h"
 
 #pragma mark - 是否启用当前 App
 
@@ -115,19 +115,19 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     [sheet addAction:[UIAlertAction actionWithTitle:@"① 导出本页头文件"
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithScope:DYDebugExportScopeCurrentPage];
+        [weakSelf performExportWithMode:DKDebugExportModePage];
     }]];
 
     [sheet addAction:[UIAlertAction actionWithTitle:@"② 导出当前 App 头文件"
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithScope:DYDebugExportScopeCurrentApp];
+        [weakSelf performExportWithMode:DKDebugExportModePage];
     }]];
 
     [sheet addAction:[UIAlertAction actionWithTitle:@"③ 导出当前播放音频头文件"
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithScope:DYDebugExportScopeCurrentAudio];
+        [weakSelf performExportWithMode:DKDebugExportModeAudio];
     }]];
 
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消"
@@ -145,38 +145,28 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
 #pragma mark - 执行导出
 
-- (void)performExportWithScope:(DYDebugExportScope)scope {
-    UIWindow *target = DYDebugTargetWindow();
+- (void)performExportWithMode:(DKDebugExportMode)mode {
+    UIWindow *target = DKDebugTargetWindow();
     if (target == nil) { [self showResult:@"找不到当前窗口"]; return; }
-    DYDebugSnapshot *snapshot = DYDebugCaptureSnapshot(target);
-    if (snapshot == nil) { [self showResult:@"无法创建调试快照"]; return; }
+    DKDebugExportContext *context = DKDebugCaptureContext(target, CGPointZero, nil);
+    if (context == nil) { [self showResult:@"无法创建调试快照"]; return; }
 
     self.exporting = YES;
     UIView *hud = [self showLoadingHUD:@"正在导出..."];
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error = nil;
-        BOOL success = [DYDebugExport exportSnapshot:snapshot scope:scope error:&error];
+        DKDebugExportResult *result = DKDebugCreateExport(context, mode, ^(NSString *text) {}, &error);
 
         dispatch_async(dispatch_get_main_queue(), ^{
             self.exporting = NO;
             [self hideLoadingHUD:hud];
-            if (!success) {
+            if (result == nil || result.zipURL == nil) {
                 [self showResult:error.localizedDescription ?: @"导出失败"];
                 return;
             }
-            NSString *zipName = nil;
-            switch (scope) {
-                case DYDebugExportScopeCurrentPage:  zipName = @"DYDebugKit-page.zip";  break;
-                case DYDebugExportScopeCurrentApp:   zipName = @"DYDebugKit-app.zip";   break;
-                case DYDebugExportScopeCurrentAudio: zipName = @"DYDebugKit-audio.zip"; break;
-            }
-            NSString *zipPath = [NSTemporaryDirectory() stringByAppendingPathComponent:zipName];
-            NSString *workDirName = [zipName stringByReplacingOccurrencesOfString:@".zip" withString:@""];
-            NSString *workDir = [NSTemporaryDirectory() stringByAppendingPathComponent:workDirName];
-            [[NSFileManager defaultManager] removeItemAtPath:workDir error:nil];
-            NSLog(@"[DYDebugKit] Export succeeded: %@", zipPath);
-            [self shareZipAtPath:zipPath];
+            NSLog(@"[DYDebugKit] Export succeeded: %@", result.zipURL.path);
+            [self shareZipAtPath:result.zipURL.path];
         });
     });
 }

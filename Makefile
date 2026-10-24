@@ -28,7 +28,7 @@ include $(THEOS)/makefiles/common.mk
 # Tweak
 # ============================================================
 TWEAK_NAME = DYDebugKit
-DYDebugKit_FILES = Entry.xm DYDebugCapture.m DYDebugExport.m DKClassDump.m DKZipWriter.m
+DYDebugKit_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m
 DYDebugKit_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
 DYDebugKit_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 DYDebugKit_LIBRARIES = z substrate
