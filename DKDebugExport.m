@@ -71,6 +71,18 @@ static NSString *DKSafeFileName(NSString *name) {
     return safe.length ? safe : @"Unknown";
 }
 
+static NSString *DKImageNameForClass(Class cls) {
+    if (!cls) return @"Unknown";
+    const char *img = class_getImageName(cls);
+    if (!img) return @"Unknown";
+    NSString *path = [NSString stringWithUTF8String:img];
+    if (!path.length) return @"Unknown";
+    NSString *last = path.lastPathComponent;
+    if ([last hasSuffix:@".dylib"]) last = [last stringByDeletingPathExtension];
+    if (last.length == 0) return @"Unknown";
+    return DKSafeFileName(last);
+}
+
 static NSString *DKUniqueFileStem(NSString *name) {
     NSString *safe = DKSafeFileName(name);
     if (safe.length > 160) {
@@ -156,7 +168,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
     NSMutableString *text = [NSMutableString string];
     [text appendString:@"DYKiller Debug Export\n"];
     [text appendFormat:@"Generated: %@\n", context.metadata[@"generatedAt"] ?: @""];
-    [text appendFormat:@"DYKiller: %@\n", DK_VERSION];
+    [text appendFormat:@"tzyhb: %@\n", DK_VERSION];
     [text appendFormat:@"Bundle: %@\n", context.metadata[@"bundleIdentifier"] ?: @""];
     [text appendFormat:@"App: %@ %@ (%@)\n",
      context.metadata[@"bundleName"] ?: @"", context.metadata[@"appVersion"] ?: @"",
@@ -167,7 +179,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
 
     if (mode == DKDebugExportModeAllClasses) {
         [text appendString:@"Contents:\n"];
-        [text appendString:@"- classes/          全部 ObjC 类头文件（已过滤运行时生成类/危险类）\n"];
+        [text appendString:@"- classes/          全部 ObjC 类头文件（按所属二进制分目录）\n"];
         [text appendString:@"- page/             本页 UI 主线程快照与本页类\n"];
         [text appendString:@"- probe/tabbar.txt  底栏现场\n"];
         [text appendString:@"- ui/screenshot.png 目标窗口截图\n"];
@@ -264,8 +276,10 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                 Class cls = NSClassFromString(name);
                 NSString *header = cls ? DKClassDumpHeaderForClass(cls) : nil;
                 if (!header.length) continue;
+                NSString *imageName = DKImageNameForClass(cls);
                 NSString *relative = [@"classes" stringByAppendingPathComponent:
-                                      [DKSafeFileName(name) stringByAppendingString:@".h"]];
+                                      [imageName stringByAppendingPathComponent:
+                                       [DKSafeFileName(name) stringByAppendingString:@".h"]]];
                 DKWriteString(sink, relative, header, NO);
                 written++;
                 if (progress && (written % 200) == 0) {
