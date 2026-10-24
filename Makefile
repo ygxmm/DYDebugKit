@@ -34,6 +34,8 @@ CD_CORE_FILES += $(wildcard classdump-core/FileManagement/*.m) $(wildcard classd
 CD_CORE_FILES += $(wildcard classdump-core/OC/*.m) $(wildcard classdump-core/ObjC/*.m)
 CD_CORE_FILES += $(wildcard classdump-core/Structure/*.m) $(wildcard classdump-core/Type/*.m)
 CD_CORE_FILES += $(wildcard classdump-core/Visitors/*.m)
+CD_CORE_FILES += $(wildcard classdump-core/Extras/*.c)
+CD_CORE_FILES += $(wildcard classdump-core/Extensions/*.mm)
 CD_CORE_FILES += DKStaticClassDump.m
 tzyhb_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m $(CD_CORE_FILES)
 tzyhb_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
@@ -42,6 +44,28 @@ tzyhb_CFLAGS += -Iclassdump-core/Core -Iclassdump-core/Cursors -Iclassdump-core/
 tzyhb_CFLAGS += -Iclassdump-core/Extras -Iclassdump-core/FileManagement -Iclassdump-core/LoadCommands
 tzyhb_CFLAGS += -Iclassdump-core/OC -Iclassdump-core/ObjC -Iclassdump-core/Structure
 tzyhb_CFLAGS += -Iclassdump-core/Type -Iclassdump-core/Visitors
+# classdump-core 是 2019 年的代码，新 clang 会报很多旧式写法警告
+# 只对 classdump-core 相关的警告关闭 -Werror，不影响 tzyhb 自己的代码
+tzyhb_CFLAGS += -Wno-error=semicolon-before-method-body
+tzyhb_CFLAGS += -Wno-error=deprecated-declarations
+tzyhb_CFLAGS += -Wno-error=comma
+tzyhb_CFLAGS += -Wno-error=implicit-function-declaration
+tzyhb_CFLAGS += -Wno-error=incompatible-pointer-types
+tzyhb_CFLAGS += -Wno-error=unused-variable
+tzyhb_CFLAGS += -Wno-error=unused-but-set-variable
+tzyhb_CFLAGS += -Wno-error=return-type
+tzyhb_CFLAGS += -Wno-error=format
+tzyhb_CFLAGS += -Wno-error=pointer-sign
+tzyhb_CFLAGS += -Wno-error=cast
+tzyhb_CFLAGS += -Wno-error=shadow
+tzyhb_CFLAGS += -Wno-error=missing-braces
+tzyhb_CFLAGS += -Wno-error=nullability-completeness
+tzyhb_CFLAGS += -Wno-error=objc-method-access
+tzyhb_CFLAGS += -Wno-error=int-conversion
+tzyhb_CFLAGS += -Wno-error=enum-conversion
+tzyhb_CFLAGS += -Wno-error=incompatible-property-type
+tzyhb_CFLAGS += -Wno-error=direct-ivar-access
+tzyhb_CFLAGS += -Wno-error=objc-root-class
 tzyhb_FRAMEWORKS = UIKit Foundation QuartzCore CoreGraphics
 tzyhb_LIBRARIES = z
 include $(THEOS_MAKE_PATH)/tweak.mk
