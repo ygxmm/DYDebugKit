@@ -155,19 +155,19 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     hud.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
     hud.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
-    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 150, 150)];
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 180, 180)];
     box.center = CGPointMake(hud.bounds.size.width / 2.0, hud.bounds.size.height / 2.0);
     box.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.9];
     box.layer.cornerRadius = 16.0;
     box.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
 
     UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
-    spinner.center = CGPointMake(75.0, 60.0);
+    spinner.center = CGPointMake(90.0, 60.0);
     spinner.color = UIColor.whiteColor;
     [spinner startAnimating];
     [box addSubview:spinner];
 
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(0, 105.0, 150.0, 30.0)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10.0, 95.0, 160.0, 75.0)];
     label.text = text;
     label.textColor = UIColor.whiteColor;
     label.textAlignment = NSTextAlignmentCenter;

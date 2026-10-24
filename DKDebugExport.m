@@ -232,8 +232,9 @@ static void DKWritePageFiles(DKExportSink *sink,
 #pragma mark - 全部类导出
 
 static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *text)) {
-    if (progress) progress(@"枚举运行时全部类...");
+    if (progress) progress(@"读取运行时类列表...");
     int count = objc_getClassList(NULL, 0);
+    if (progress) progress([NSString stringWithFormat:@"运行时共 %d 个类，开始写入...", count]);
     if (count <= 0) return;
     Class *classes = (Class *)malloc(sizeof(Class) * (size_t)count);
     if (!classes) return;
