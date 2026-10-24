@@ -84,6 +84,17 @@ static BOOL DKAddressInSegments(uintptr_t addr, const struct mach_header_64 *hea
     return NO;
 }
 
+static BOOL DKAddressInAnyLoadedImage(uintptr_t addr, size_t minLen) {
+    uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; i++) {
+        const struct mach_header_64 *h = (const struct mach_header_64 *)_dyld_get_image_header(i);
+        if (!h || h->magic != MH_MAGIC_64) continue;
+        intptr_t sl = _dyld_get_image_vmaddr_slide(i);
+        if (DKAddressInSegments(addr, h, sl, minLen)) return YES;
+    }
+    return NO;
+}
+
 static BOOL DKIsPrintableString(const char *p, size_t maxLen) {
     if (!p) return NO;
     for (size_t i = 0; i < maxLen; i++) {
@@ -184,9 +195,13 @@ void DKStaticDumpCategories(NSString *binaryPath,
                     uintptr_t clsPtr = DKStripPAC(fields[1]);
                     NSString *className = nil;
 
+                    if (clsPtr != 0 && !DKAddressInAnyLoadedImage(clsPtr, 8)) {
+                        NSLog(@"[DKCAT-DIAG] skip bad clsPtr=%016lx name=%@",
+                              (unsigned long)clsPtr, catName);
+                        skipped++;
+                        clsPtr = 0;
+                    }
                     if (clsPtr != 0) {
-                        // cls 可能跨 image，不用当前 header 做边界检查
-                        // 用 sigsetjmp 保护 class_getName，崩了跳过
                         DK_TRY_BEGIN();
                         {
                             Class cls = (__bridge Class)(void *)clsPtr;
