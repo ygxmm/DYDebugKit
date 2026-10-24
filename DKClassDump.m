@@ -344,8 +344,10 @@ NSArray<NSString *> *DKClassDumpCategoriesForClass(Class cls) {
     uint32_t imageCount = _dyld_image_count();
 
     for (uint32_t i = 0; i < imageCount; i++) {
-        const struct mach_header *header = _dyld_get_image_header(i);
-        if (!header) continue;
+        const struct mach_header *headerRaw = _dyld_get_image_header(i);
+        if (!headerRaw) continue;
+        if (headerRaw->magic != MH_MAGIC_64) continue;
+        const struct mach_header_64 *header = (const struct mach_header_64 *)headerRaw;
         unsigned long size = 0;
         uintptr_t *catlist = NULL;
         // 优先 __DATA_CONST，再试 __DATA
@@ -416,7 +418,6 @@ NSArray<NSString *> *DKClassDumpCategoriesForClass(Class cls) {
                         for (uint32_t j = 0; j < count; j++) {
                             uint8_t *entry = (uint8_t *)cat->instanceMethods + 8 + j * entsize;
                             SEL sel = *(SEL *)entry;
-                            const char *types = *(const char **)(entry + 8);
                             if (sel) {
                                 [h appendFormat:@"- (%s)%s;\n", "void", sel_getName(sel)];
                             }
