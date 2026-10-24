@@ -1,7 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <notify.h>
-#import <roothide.h>
 
 #import "DKDebugCapture.h"
 #import "DKDebugExport.h"
@@ -20,7 +19,7 @@ static BOOL DYIsCurrentAppEnabled(void) {
     if (bid.length == 0) return NO;
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
 
-    NSString *path = jbroot(@"/var/mobile/Library/Preferences/dydebugkit.json");
+    NSString *path = @"/var/mobile/Library/Preferences/dydebugkit.json";
     int fd = open(path.UTF8String, O_RDONLY);
     if (fd < 0) return NO;
 
