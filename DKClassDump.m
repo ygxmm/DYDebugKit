@@ -337,63 +337,55 @@ typedef struct {
 // 格式：@interface ClassName (CategoryName) <Protocols> ... @end
 #pragma mark - 安全指针读取（iOS 16 chained fixup）
 
-#include <mach/vm_region.h>
-#include <mach/mach_vm.h>
-#include <dlfcn.h>
+#include <mach-o/loader.h>
 
-// 检查指针是否在可读内存
-static BOOL DK_PtrReadable(uintptr_t addr) {
-    if (addr == 0) return NO;
-    vm_address_t rAddr = (vm_address_t)addr;
-    vm_size_t rSize = 0;
-    vm_region_basic_info_data_64_t info;
-    mach_port_t obj;
-    mach_msg_type_number_t cnt = VM_REGION_BASIC_INFO_COUNT_64;
-    kern_return_t kr = vm_region_64(mach_task_self(), &rAddr, &rSize,
-                                    VM_REGION_BASIC_INFO_64,
-                                    (vm_region_info_t)&info, &cnt, &obj);
-    if (kr != KERN_SUCCESS) return NO;
-    if (!(info.protection & VM_PROT_READ)) return NO;
-    if (addr < rAddr || addr >= rAddr + rSize) return NO;
-    return YES;
+// 检查地址是否在 [start, end) 范围内
+static BOOL DK_PtrInRange(uintptr_t addr, uintptr_t start, uintptr_t end) {
+    return addr >= start && addr < end;
 }
 
-// 解码可能是 chained fixup rebase 编码的指针
-// iOS 16 __DATA_CONST 里存的是 dyld_chained_ptr_64_rebase 格式：
-// bits 0-35: target（image-relative）
-// bits 36-43: high8
-// bits 51-62: next
-// bit 63: bind
-// 先试原始值，再试解码值
-static uintptr_t DK_ResolvePtr(uint64_t raw, uintptr_t slide) {
+// 从 mach header 计算 image 的 vmaddr 范围（含 slide）
+static void DK_GetImageRange(const struct mach_header_64 *header, uintptr_t slide,
+                              uintptr_t *outStart, uintptr_t *outEnd) {
+    uintptr_t minAddr = UINTPTR_MAX;
+    uintptr_t maxAddr = 0;
+    if (!header) { *outStart = 0; *outEnd = 0; return; }
+    const struct load_command *cmd = (const struct load_command *)(header + 1);
+    for (uint32_t i = 0; i < header->ncmds; i++) {
+        if (cmd->cmd == LC_SEGMENT_64) {
+            const struct segment_command_64 *seg = (const struct segment_command_64 *)cmd;
+            if (seg->vmaddr > 0) {
+                uintptr_t segStart = (uintptr_t)seg->vmaddr + slide;
+                uintptr_t segEnd = segStart + (uintptr_t)seg->vmsize;
+                if (segStart < minAddr) minAddr = segStart;
+                if (segEnd > maxAddr) maxAddr = segEnd;
+            }
+        }
+        cmd = (const struct load_command *)((const uint8_t *)cmd + cmd->cmdsize);
+    }
+    if (minAddr == UINTPTR_MAX) { *outStart = 0; *outEnd = 0; return; }
+    *outStart = minAddr;
+    *outEnd = maxAddr;
+}
+
+// 解析可能 chained fixup 编码的指针（限定在 image 范围内）
+static uintptr_t DK_ResolvePtrInRange(uint64_t raw, uintptr_t slide,
+                                       uintptr_t rangeStart, uintptr_t rangeEnd) {
     if (raw == 0) return 0;
-
-    // 候选 1：原始值（已经被 dyld fixup 过的普通指针）
-    if (DK_PtrReadable((uintptr_t)raw)) return (uintptr_t)raw;
-
-    // 候选 2：chained fixup 解码
+    // 候选 1：原始值（已被 dyld fixup 的普通指针）
+    uintptr_t candidate = (uintptr_t)raw;
+    if (candidate >= rangeStart && candidate < rangeEnd) return candidate;
+    // 候选 2：chained fixup 解码（target = raw & 0xFFFFFFFFF，加上 slide）
     uint64_t target = raw & 0xFFFFFFFFFULL;
     uintptr_t decoded = (uintptr_t)(target + slide);
-    if (DK_PtrReadable(decoded)) return decoded;
-
+    if (decoded >= rangeStart && decoded < rangeEnd) return decoded;
     return 0;
 }
 
-// 安全读取 C 字符串（带长度限制 + 内存可读检查）
-static NSString *DK_SafeCString(uintptr_t addr, size_t maxLen) {
-    if (addr == 0 || maxLen == 0) return nil;
-    if (!DK_PtrReadable(addr)) return nil;
-
-    vm_address_t rAddr = (vm_address_t)addr;
-    vm_size_t rSize = 0;
-    vm_region_basic_info_data_64_t info;
-    mach_port_t obj;
-    mach_msg_type_number_t cnt = VM_REGION_BASIC_INFO_COUNT_64;
-    if (vm_region_64(mach_task_self(), &rAddr, &rSize,
-                     VM_REGION_BASIC_INFO_64,
-                     (vm_region_info_t)&info, &cnt, &obj) != KERN_SUCCESS) return nil;
-
-    size_t available = (rAddr + rSize) - addr;
+// 安全读取 C 字符串（限定范围 + 长度）
+static NSString *DK_SafeCStringInRange(uintptr_t addr, uintptr_t end, size_t maxLen) {
+    if (addr == 0 || addr >= end || maxLen == 0) return nil;
+    size_t available = end - addr;
     size_t scanLen = MIN(available, maxLen);
     const char *c = (const char *)addr;
     size_t len = 0;
@@ -418,6 +410,10 @@ void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categ
         const struct mach_header_64 *header = (const struct mach_header_64 *)headerRaw;
         uintptr_t slide = (uintptr_t)_dyld_get_image_vmaddr_slide(i);
 
+        uintptr_t rangeStart = 0, rangeEnd = 0;
+        DK_GetImageRange(header, slide, &rangeStart, &rangeEnd);
+        if (rangeStart == 0 || rangeEnd <= rangeStart) continue;
+
         unsigned long size = 0;
         uintptr_t *catlist = (uintptr_t *)getsectiondata(header, "__DATA_CONST", "__objc_catlist", &size);
         if (!catlist || size == 0) {
@@ -429,7 +425,7 @@ void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categ
         for (uintptr_t *p = catlist; p < endPtr; p++) {
             @autoreleasepool {
                 uintptr_t rawCat = *p;
-                uintptr_t catPtr = DK_ResolvePtr(rawCat, slide);
+                uintptr_t catPtr = DK_ResolvePtrInRange(rawCat, slide, rangeStart, rangeEnd);
                 if (!catPtr) continue;
 
                 DKCategory_t *cat = (DKCategory_t *)catPtr;
@@ -437,14 +433,14 @@ void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categ
 
                 // 解析 cat->cls
                 uintptr_t rawCls = (uintptr_t)cat->cls;
-                uintptr_t resolvedCls = DK_ResolvePtr(rawCls, slide);
+                uintptr_t resolvedCls = DK_ResolvePtrInRange(rawCls, slide, rangeStart, rangeEnd);
                 if (resolvedCls != targetCls) continue;
 
                 // 解析 cat->name
                 uintptr_t rawName = (uintptr_t)cat->name;
-                uintptr_t namePtr = DK_ResolvePtr(rawName, slide);
+                uintptr_t namePtr = DK_ResolvePtrInRange(rawName, slide, rangeStart, rangeEnd);
                 if (!namePtr) continue;
-                NSString *catName = DK_SafeCString(namePtr, 256);
+                NSString *catName = DK_SafeCStringInRange(namePtr, rangeEnd, 256);
                 if (!catName) continue;
 
                 @try {
@@ -453,7 +449,7 @@ void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categ
 
                     // 协议列表
                     uintptr_t rawProtos = (uintptr_t)cat->protocols;
-                    uintptr_t protosPtr = DK_ResolvePtr(rawProtos, slide);
+                    uintptr_t protosPtr = DK_ResolvePtrInRange(rawProtos, slide, rangeStart, rangeEnd);
                     if (protosPtr) {
                         uintptr_t *pl = (uintptr_t *)protosPtr;
                         uintptr_t pcount = pl[0];
@@ -461,15 +457,17 @@ void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categ
                             NSMutableArray *protos = [NSMutableArray array];
                             for (uintptr_t j = 0; j < pcount; j++) {
                                 uintptr_t rawP = pl[j + 1];
-                                uintptr_t pPtr = DK_ResolvePtr(rawP, slide);
+                                uintptr_t pPtr = DK_ResolvePtrInRange(rawP, slide, rangeStart, rangeEnd);
                                 if (!pPtr) continue;
                                 Protocol *proto = (__bridge Protocol *)((void *)pPtr);
                                 if (proto) {
-                                    const char *pn = protocol_getName(proto);
-                                    if (pn) {
-                                        NSString *pnStr = [NSString stringWithUTF8String:pn];
-                                        if (pnStr) [protos addObject:pnStr];
-                                    }
+                                    @try {
+                                        const char *pn = protocol_getName(proto);
+                                        if (pn) {
+                                            NSString *pnStr = [NSString stringWithUTF8String:pn];
+                                            if (pnStr) [protos addObject:pnStr];
+                                        }
+                                    } @catch (NSException *e) {}
                                 }
                             }
                             if (protos.count > 0) {
@@ -481,25 +479,26 @@ void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categ
 
                     // category 属性
                     uintptr_t rawProps = (uintptr_t)cat->instanceProperties;
-                    uintptr_t propsPtr = DK_ResolvePtr(rawProps, slide);
-                    if (propsPtr) {
+                    uintptr_t propsPtr = DK_ResolvePtrInRange(rawProps, slide, rangeStart, rangeEnd);
+                    if (propsPtr && propsPtr + 8 <= rangeEnd) {
                         uint32_t *pl = (uint32_t *)propsPtr;
                         uint32_t entsize = pl[0] & 0xFFFFFFFC;
                         uint32_t count = pl[1];
                         if (count > 0 && count < 10000 && entsize >= 16 && entsize <= 128) {
                             for (uint32_t j = 0; j < count; j++) {
-                                uint8_t *entry = (uint8_t *)propsPtr + 8 + j * entsize;
+                                uintptr_t entryOff = propsPtr + 8 + j * entsize;
+                                if (entryOff + 16 > rangeEnd) break;
+                                uint8_t *entry = (uint8_t *)entryOff;
                                 uintptr_t rawPn = *(uintptr_t *)entry;
                                 uintptr_t rawPa = *(uintptr_t *)(entry + 8);
-                                uintptr_t pnPtr = DK_ResolvePtr(rawPn, slide);
+                                uintptr_t pnPtr = DK_ResolvePtrInRange(rawPn, slide, rangeStart, rangeEnd);
                                 if (!pnPtr) continue;
-                                NSString *pName = DK_SafeCString(pnPtr, 256);
+                                NSString *pName = DK_SafeCStringInRange(pnPtr, rangeEnd, 256);
                                 if (!pName) continue;
                                 NSString *pAttr = nil;
-                                uintptr_t paPtr = DK_ResolvePtr(rawPa, slide);
-                                if (paPtr) pAttr = DK_SafeCString(paPtr, 512);
-                                [h appendFormat:@"@property %@ %@;\n",
-                                 pAttr ?: @"", pName];
+                                uintptr_t paPtr = DK_ResolvePtrInRange(rawPa, slide, rangeStart, rangeEnd);
+                                if (paPtr) pAttr = DK_SafeCStringInRange(paPtr, rangeEnd, 512);
+                                [h appendFormat:@"@property %@ %@;\n", pAttr ?: @"", pName];
                             }
                             [h appendString:@"\n"];
                         }
@@ -507,18 +506,20 @@ void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categ
 
                     // category 实例方法
                     uintptr_t rawIM = (uintptr_t)cat->instanceMethods;
-                    uintptr_t imPtr = DK_ResolvePtr(rawIM, slide);
-                    if (imPtr) {
+                    uintptr_t imPtr = DK_ResolvePtrInRange(rawIM, slide, rangeStart, rangeEnd);
+                    if (imPtr && imPtr + 8 <= rangeEnd) {
                         uint32_t *ml = (uint32_t *)imPtr;
                         uint32_t entsize = ml[0] & 0xFFFFFFFC;
                         uint32_t count = ml[1];
                         if (count > 0 && count < 10000 && entsize >= 24 && entsize <= 128) {
                             for (uint32_t j = 0; j < count; j++) {
-                                uint8_t *entry = (uint8_t *)imPtr + 8 + j * entsize;
+                                uintptr_t entryOff = imPtr + 8 + j * entsize;
+                                if (entryOff + 16 > rangeEnd) break;
+                                uint8_t *entry = (uint8_t *)entryOff;
                                 uintptr_t rawSel = *(uintptr_t *)entry;
-                                uintptr_t selPtr = DK_ResolvePtr(rawSel, slide);
+                                uintptr_t selPtr = DK_ResolvePtrInRange(rawSel, slide, rangeStart, rangeEnd);
                                 if (!selPtr) continue;
-                                NSString *selStr = DK_SafeCString(selPtr, 512);
+                                NSString *selStr = DK_SafeCStringInRange(selPtr, rangeEnd, 512);
                                 if (!selStr) continue;
                                 [h appendFormat:@"- (void)%@;\n", selStr];
                             }
@@ -527,18 +528,20 @@ void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categ
 
                     // category 类方法
                     uintptr_t rawCM = (uintptr_t)cat->classMethods;
-                    uintptr_t cmPtr = DK_ResolvePtr(rawCM, slide);
-                    if (cmPtr) {
+                    uintptr_t cmPtr = DK_ResolvePtrInRange(rawCM, slide, rangeStart, rangeEnd);
+                    if (cmPtr && cmPtr + 8 <= rangeEnd) {
                         uint32_t *ml = (uint32_t *)cmPtr;
                         uint32_t entsize = ml[0] & 0xFFFFFFFC;
                         uint32_t count = ml[1];
                         if (count > 0 && count < 10000 && entsize >= 24 && entsize <= 128) {
                             for (uint32_t j = 0; j < count; j++) {
-                                uint8_t *entry = (uint8_t *)cmPtr + 8 + j * entsize;
+                                uintptr_t entryOff = cmPtr + 8 + j * entsize;
+                                if (entryOff + 16 > rangeEnd) break;
+                                uint8_t *entry = (uint8_t *)entryOff;
                                 uintptr_t rawSel = *(uintptr_t *)entry;
-                                uintptr_t selPtr = DK_ResolvePtr(rawSel, slide);
+                                uintptr_t selPtr = DK_ResolvePtrInRange(rawSel, slide, rangeStart, rangeEnd);
                                 if (!selPtr) continue;
-                                NSString *selStr = DK_SafeCString(selPtr, 512);
+                                NSString *selStr = DK_SafeCStringInRange(selPtr, rangeEnd, 512);
                                 if (!selStr) continue;
                                 [h appendFormat:@"+ (void)%@;\n", selStr];
                             }
