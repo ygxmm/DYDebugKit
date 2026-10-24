@@ -35,6 +35,7 @@ CD_CORE_FILES += $(wildcard classdump-core/OC/*.m) $(wildcard classdump-core/Obj
 CD_CORE_FILES += $(wildcard classdump-core/Structure/*.m) $(wildcard classdump-core/Type/*.m)
 CD_CORE_FILES += $(wildcard classdump-core/Visitors/*.m)
 CD_CORE_FILES += $(filter-out classdump-core/Extras/blowfish.c,$(wildcard classdump-core/Extras/*.c))
+CD_CORE_FILES += $(wildcard classdump-core/Core/*.m)
 CD_CORE_FILES += $(wildcard classdump-core/Extensions/*.mm)
 CD_CORE_FILES += DKStaticClassDump.m
 tzyhb_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m $(CD_CORE_FILES)
