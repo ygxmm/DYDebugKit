@@ -7,11 +7,8 @@
 
 #pragma mark - 是否启用当前 App
 
-#define kPrefsPath @"/var/mobile/Library/Preferences/com.ygxmm.dydebugkit.plist"
 
 
-#import <fcntl.h>
-#import <unistd.h>
 
 
 static BOOL DYIsCurrentAppEnabled(void) {
@@ -19,27 +16,8 @@ static BOOL DYIsCurrentAppEnabled(void) {
     if (bid.length == 0) return NO;
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
 
-    NSString *path = @"/var/mobile/Library/Preferences/dydebugkit.json";
-    int fd = open(path.UTF8String, O_RDONLY);
-    if (fd < 0) return NO;
-
-    NSMutableData *data = [NSMutableData data];
-    char buf[4096];
-    ssize_t n;
-    while ((n = read(fd, buf, sizeof(buf))) > 0) {
-        [data appendBytes:buf length:n];
-    }
-    close(fd);
-
-    if (data.length == 0) return NO;
-    NSDictionary *enabled = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    if (![enabled isKindOfClass:NSDictionary.class]) return NO;
-    if (enabled[bid] != nil) {
-        BOOL enabled_ = [enabled[bid] boolValue];
-        NSLog(@"[DYDebugKit] ==enabled== %@ -> %d (json)", bid, enabled_);
-        return enabled_;
-    }
-    NSLog(@"[DYDebugKit] ==enabled== %@ -> 1 (default)", bid);
+    // TrollFools 注入模式：注入即启用，不读任何配置文件
+    NSLog(@"[DYDebugKit] ==enabled== %@ -> 1 (injected)", bid);
     return YES;
 }
 
