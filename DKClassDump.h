@@ -27,7 +27,7 @@ NSString *DKClassDumpHeaderForClass(Class cls);
 
 /// 导出指定类的所有 category 头文件文本（每个 category 一个 @interface...@end 块）。
 /// 通过扫描 Mach-O 的 __objc_catlist section 获得。
-NSArray<NSString *> *DKClassDumpCategoriesForClass(Class cls);
+void DKClassDumpCategoriesForClass(Class cls, void (^writeBlock)(NSString *categoryName, NSString *headerText));
 
 /// 遍历所有已加载 image 的 __objc_classlist，返回 class_t* 数组
 NSArray<NSValue *> *DKClassDumpAllClassesFromMachO(void);
