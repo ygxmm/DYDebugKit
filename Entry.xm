@@ -118,16 +118,10 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         [weakSelf performExportWithMode:DKDebugExportModePage];
     }]];
 
-    [sheet addAction:[UIAlertAction actionWithTitle:@"② 导出当前 App 头文件"
+    [sheet addAction:[UIAlertAction actionWithTitle:@"② 导出全部 ClassDump"
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithMode:DKDebugExportModePage];
-    }]];
-
-    [sheet addAction:[UIAlertAction actionWithTitle:@"③ 导出当前播放音频头文件"
-                                              style:UIAlertActionStyleDefault
-                                            handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithMode:DKDebugExportModeAudio];
+        [weakSelf performExportWithMode:DKDebugExportModeAllClasses];
     }]];
 
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消"

@@ -14,6 +14,7 @@
 typedef NS_ENUM(NSUInteger, DKDebugExportMode) {
     DKDebugExportModePage,
     DKDebugExportModeAudio,
+    DKDebugExportModeAllClasses,
 };
 
 /// ZIP 生成失败时，工作目录会被保留，路径放在 error.userInfo 的这个键上。

@@ -25,7 +25,7 @@ static NSString *const DKExportErrorDomain = @"com.dykiller.debug-export";
 
 // 单个导出包的文件数上限。页面导出约 200 个、音频导出约 15 个，
 // 这道闸门只用来防止将来某处再写出失控的循环。
-static const NSUInteger kDKMaxExportFiles = 8000;
+static const NSUInteger kDKMaxExportFiles = 50000;
 
 @implementation DKDebugExportResult
 @end
@@ -145,7 +145,9 @@ static BOOL DKWriteJSON(DKExportSink *sink, NSString *relativePath, id object, B
 }
 
 static NSString *DKModeName(DKDebugExportMode mode) {
-    return mode == DKDebugExportModeAudio ? @"audio" : @"page";
+    if (mode == DKDebugExportModeAudio) return @"audio";
+    if (mode == DKDebugExportModeAllClasses) return @"all-classes";
+    return @"page";
 }
 
 #pragma mark - README
@@ -163,7 +165,13 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
      context.metadata[@"systemVersion"] ?: @""];
     [text appendFormat:@"Mode: %@\n\n", DKModeName(mode)];
 
-    if (mode == DKDebugExportModeAudio) {
+    if (mode == DKDebugExportModeAllClasses) {
+        [text appendString:@"Contents:\n"];
+        [text appendString:@"- classes/          全部 ObjC 类头文件（已过滤运行时生成类/危险类）\n"];
+        [text appendString:@"- page/             本页 UI 主线程快照与本页类\n"];
+        [text appendString:@"- probe/tabbar.txt  底栏现场\n"];
+        [text appendString:@"- ui/screenshot.png 目标窗口截图\n"];
+    } else if (mode == DKDebugExportModeAudio) {
         DKAudioProbeCapture *capture = context.audioCapture;
         [text appendString:@"Contents:\n"];
         [text appendString:@"- audio/session.json        采样前后的 AVAudioSession 快照\n"];
@@ -219,6 +227,58 @@ static void DKWritePageFiles(DKExportSink *sink,
     DKWriteJSON(sink, @"page/layers.json", context.layersJSON ?: @[], NO);
     if (progress) progress(@"导出本页类头文件...");
     DKWritePageClasses(sink, context.pageClassNames ?: @[]);
+}
+
+#pragma mark - 全部类导出
+
+static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *text)) {
+    if (progress) progress(@"枚举运行时全部类...");
+    int count = objc_getClassList(NULL, 0);
+    if (count <= 0) return;
+    Class *classes = (Class *)malloc(sizeof(Class) * (size_t)count);
+    if (!classes) return;
+    int actual = objc_getClassList(classes, count);
+    if (actual < count) count = actual;
+
+    NSMutableSet<NSString *> *seen = [NSMutableSet setWithCapacity:(NSUInteger)count];
+    NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:(NSUInteger)count];
+    for (int i = 0; i < count; i++) {
+        @autoreleasepool {
+            Class cls = classes[i];
+            if (!DKClassIsSafe(cls)) continue;
+            NSString *name = NSStringFromClass(cls);
+            if (!name.length || DKClassNameIsRuntimeGenerated(name)) continue;
+            if ([seen containsObject:name]) continue;
+            [seen addObject:name];
+            [names addObject:name];
+        }
+    }
+    free(classes);
+
+    if (progress) progress([NSString stringWithFormat:@"写入全部类头文件（%lu 个）...", (unsigned long)names.count]);
+    NSArray<NSString *> *sorted = [names sortedArrayUsingSelector:@selector(compare:)];
+    NSUInteger written = 0;
+    for (NSString *name in sorted) {
+        @autoreleasepool {
+            @try {
+                Class cls = NSClassFromString(name);
+                NSString *header = cls ? DKClassDumpHeaderForClass(cls) : nil;
+                if (!header.length) continue;
+                NSString *relative = [@"classes" stringByAppendingPathComponent:
+                                      [DKUniqueFileStem(name) stringByAppendingString:@".h"]];
+                DKWriteString(sink, relative, header, NO);
+                written++;
+                if (progress && (written % 1000) == 0) {
+                    progress([NSString stringWithFormat:@"已导出 %lu / %lu 类",
+                              (unsigned long)written, (unsigned long)names.count]);
+                }
+            } @catch (NSException *exception) {
+                DKRecordError(sink, name, @"all-class",
+                              DKMakeExportError(20, exception.reason ?: @"类头文件导出异常", nil), NO);
+            }
+        }
+    }
+    if (progress) progress([NSString stringWithFormat:@"全部类导出完成：%lu 个", (unsigned long)written]);
 }
 
 #pragma mark - 音频内容
@@ -284,6 +344,9 @@ DKDebugExportResult *DKDebugCreateExport(DKDebugExportContext *context,
 
     if (mode == DKDebugExportModeAudio) {
         DKWriteAudioFiles(sink, context.audioCapture, progress);
+    } else if (mode == DKDebugExportModeAllClasses) {
+        DKWriteAllClasses(sink, progress);
+        DKWritePageFiles(sink, context, progress);
     } else {
         DKWritePageFiles(sink, context, progress);
     }
