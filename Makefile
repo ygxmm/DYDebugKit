@@ -38,7 +38,7 @@ CD_CORE_FILES += $(wildcard classdump-core/Extras/*.c)
 CD_CORE_FILES += $(wildcard classdump-core/Extensions/*.mm)
 CD_CORE_FILES += DKStaticClassDump.m
 tzyhb_FILES = Entry.xm DKDebugCapture.m DKDebugExport.m DKClassDump.m DKZipWriter.m DKAudioProbe.m $(CD_CORE_FILES)
-tzyhb_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unused-parameter -Wno-unused-function
+tzyhb_CFLAGS = -fobjc-arc -Wall -Wextra -Wno-unknown-warning-option -Wno-unused-parameter -Wno-unused-function
 tzyhb_CFLAGS += -Iclassdump-core -include classdump-core/class-dump-Prefix.pch
 tzyhb_CFLAGS += -Iclassdump-core/Core -Iclassdump-core/Cursors -Iclassdump-core/Extensions
 tzyhb_CFLAGS += -Iclassdump-core/Extras -Iclassdump-core/FileManagement -Iclassdump-core/LoadCommands
@@ -56,7 +56,6 @@ tzyhb_CFLAGS += -Wno-error=unused-but-set-variable
 tzyhb_CFLAGS += -Wno-error=return-type
 tzyhb_CFLAGS += -Wno-error=format
 tzyhb_CFLAGS += -Wno-error=pointer-sign
-tzyhb_CFLAGS += -Wno-error=cast
 tzyhb_CFLAGS += -Wno-error=shadow
 tzyhb_CFLAGS += -Wno-error=missing-braces
 tzyhb_CFLAGS += -Wno-error=nullability-completeness
