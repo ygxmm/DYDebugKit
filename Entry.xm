@@ -127,7 +127,15 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error = nil;
-        DKDebugExportResult *result = DKDebugCreateExport(context, mode, ^(NSString *text) {}, &error);
+        DKDebugExportResult *result = DKDebugCreateExport(context, mode, ^(NSString *text) {
+            if (!text.length) return;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UILabel *lbl = (UILabel *)[hud viewWithTag:9999];
+                if ([lbl isKindOfClass:[UILabel class]]) {
+                    lbl.text = text;
+                }
+            });
+        }, &error);
 
         dispatch_async(dispatch_get_main_queue(), ^{
             self.exporting = NO;
@@ -164,6 +172,11 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     label.textColor = UIColor.whiteColor;
     label.textAlignment = NSTextAlignmentCenter;
     label.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightMedium];
+    label.tag = 9999;
+    label.numberOfLines = 3;
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = 0.6;
+    label.lineBreakMode = NSLineBreakByWordWrapping;
     [box addSubview:label];
 
     [hud addSubview:box];

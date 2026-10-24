@@ -267,7 +267,7 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                                       [DKSafeFileName(name) stringByAppendingString:@".h"]];
                 DKWriteString(sink, relative, header, NO);
                 written++;
-                if (progress && (written % 1000) == 0) {
+                if (progress && (written % 200) == 0) {
                     double pct = names.count > 0 ? (written * 100.0 / (double)names.count) : 0.0;
                     progress([NSString stringWithFormat:@"已导出 %lu / %lu（%.1f%%）",
                               (unsigned long)written, (unsigned long)names.count, pct]);
