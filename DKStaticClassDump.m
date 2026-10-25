@@ -360,6 +360,13 @@ void DKStaticDumpCategories(NSString *binaryPath,
         @autoreleasepool {
             const char *imgName = _dyld_get_image_name(img);
             if (!imgName) continue;
+            {
+                NSString *ipath = [NSString stringWithUTF8String:imgName];
+                BOOL isApp = ipath && ([ipath containsString:@"/containers/Bundle/Application/"]
+                                    || [ipath containsString:@"/.jbroot-"]
+                                    || [ipath containsString:@"/TweakInject/"]);
+                if (!isApp) continue;
+            }
             const struct mach_header *hdrRaw = _dyld_get_image_header(img);
             if (!hdrRaw || hdrRaw->magic != MH_MAGIC_64) continue;
             const struct mach_header_64 *header = (const struct mach_header_64 *)hdrRaw;

@@ -79,6 +79,11 @@ static NSString *DKImageNameForClass(Class cls) {
     if (!img) return @"Unknown";
     NSString *path = [NSString stringWithUTF8String:img];
     if (!path.length) return @"Unknown";
+    // App-only filter: skip system frameworks/dylibs
+    BOOL isAppImage = [path containsString:@"/containers/Bundle/Application/"]
+                   || [path containsString:@"/.jbroot-"]
+                   || [path containsString:@"/TweakInject/"];
+    if (!isAppImage) return @"";   // system image -> empty -> caller skips
     NSString *last = path.lastPathComponent;
     if ([last hasSuffix:@".dylib"]) last = [last stringByDeletingPathExtension];
     if (last.length == 0) return @"Unknown";
@@ -311,6 +316,7 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                 NSString *header = cls ? DKClassDumpHeaderForClass(cls) : nil;
                 if (!header.length) continue;
                 NSString *imageName = DKImageNameForClass(cls);
+                if (!imageName.length) continue;
                 if ([imageName isEqualToString:@"tzyhb"]) continue;
                 NSString *relative = [@"classes" stringByAppendingPathComponent:
                                       [imageName stringByAppendingPathComponent:
