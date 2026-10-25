@@ -223,6 +223,35 @@ static NSString *DKClassFromCategoryMethods(uintptr_t listAddr) {
     return nil;
 }
 
+static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
+    if (listAddr == 0) return nil;
+    if (!DKAddressInAnyLoadedImage(listAddr, 8)) return nil;
+    uint32_t eFlags = *(uint32_t *)listAddr;
+    uint32_t count = *(uint32_t *)(listAddr + 4);
+    if (count == 0 || count > 5000) return nil;
+    uint32_t e = eFlags & 0xFFFFFFFC;
+    BOOL rel = (eFlags & 0x80000000) != 0 || e == 12;
+    if (e != 24 && e != 12) return nil;
+    NSMutableString *out = [NSMutableString string];
+    for (uint32_t i = 0; i < count; i++) {
+        uintptr_t entry = listAddr + 8 + (uintptr_t)i * e;
+        if (!DKAddressInAnyLoadedImage(entry, 8)) break;
+        const char *name = NULL;
+        if (rel) {
+            int32_t r = *(int32_t *)entry;
+            uintptr_t na = entry + (intptr_t)r;
+            if (DKAddressInAnyLoadedImage(na, 1)) name = (const char *)na;
+        } else {
+            uintptr_t np = *(uintptr_t *)entry;
+            np &= 0x0000FFFFFFFFFFFF;
+            if (DKAddressInAnyLoadedImage(np, 1)) name = (const char *)np;
+        }
+        if (!name || !DKIsPrintableString(name, 256)) continue;
+        [out appendFormat:@"%s (%s);\n", sigil, name];
+    }
+    return out.length ? out : nil;
+}
+
 static BOOL DKReadClassNameFast(uintptr_t clsPtr, char *outBuf, size_t outBufLen) {
     if (clsPtr == 0 || (clsPtr & 7)) return NO;
     if (!DKAddressInAnyLoadedImage(clsPtr, 40)) return NO;
@@ -332,8 +361,21 @@ static void DKProcessCategory(uintptr_t catAddr,
     NSMutableString *text = [NSMutableString string];
     [text appendString:@"//\n"];
     [text appendFormat:@"// %@ (%@)\n", className, catName];
+
+    // Extract instance and class methods from category_t
+    NSString *instDecls = nil;
+    NSString *clsDecls  = nil;
+    if (fields[2] != 0) {
+        instDecls = DKMethodListToDecls(DKStripPAC(fields[2]), "-");
+    }
+    if (fields[3] != 0) {
+        clsDecls = DKMethodListToDecls(DKStripPAC(fields[3]), "+");
+    }
     [text appendFormat:@"// scanned from %s\n//\n\n", tag];
-    [text appendFormat:@"@interface %@ (%@)\n\n@end\n", className, catName];
+    [text appendFormat:@"@interface %@ (%@)\n\n", className, catName];
+    if (instDecls.length) [text appendFormat:@"// instanceMethods\n%@\n", instDecls];
+    if (clsDecls.length)  [text appendFormat:@"// classMethods\n%@\n", clsDecls];
+    [text appendString:@"@end\n"];
     onCategory(className, catName, text);
     (*totalCats)++;
 }
