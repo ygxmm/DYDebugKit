@@ -277,6 +277,62 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
     return out.length ? out : nil;
 }
 
+static NSString *DKLookupClassBySEL(NSString *selName) {
+    if (!selName.length) return nil;
+    if (!gSELToClassMap) {
+        NSMutableDictionary *map = [NSMutableDictionary dictionaryWithCapacity:400000];
+        uint32_t count = 0;
+        Class *classes = objc_copyClassList(&count);
+        if (classes) {
+            for (uint32_t i = 0; i < count; i++) {
+                @autoreleasepool {
+                    Class cls = classes[i];
+                    if (!cls) continue;
+                    const char *cn = class_getName(cls);
+                    if (!cn) continue;
+                    NSString *clsName = [NSString stringWithUTF8String:cn];
+                    if (!clsName) continue;
+                    unsigned int mc = 0;
+                    Method *ms = class_copyMethodList(cls, &mc);
+                    if (!ms) continue;
+                    for (unsigned int j = 0; j < mc; j++) {
+                        SEL sel = method_getName(ms[j]);
+                        if (!sel) continue;
+                        NSString *sn = [NSString stringWithUTF8String:sel_getName(sel)];
+                        if (!sn) continue;
+                        if (!map[sn]) map[sn] = clsName;
+                    }
+                    free(ms);
+                }
+            }
+            free(classes);
+        }
+        gSELToClassMap = [map copy];
+        DKScanLog("SEL map built: %lu entries", (unsigned long)map.count);
+    }
+    return gSELToClassMap[selName];
+}
+
+
+static NSString *DKReadProtocols(uintptr_t protoListAddr) {
+    if (protoListAddr == 0) return nil;
+    if (!DKAddressInAnyLoadedImage(protoListAddr, 8)) return nil;
+    uint64_t count = *(uint64_t *)protoListAddr;
+    if (count == 0 || count > 200) return nil;
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (uint64_t i = 0; i < count; i++) {
+        uintptr_t protoPtr = *(uintptr_t *)(protoListAddr + 8 + i * 8);
+        protoPtr &= 0x0000FFFFFFFFFFFF;
+        if (!DKAddressInAnyLoadedImage(protoPtr, 16)) continue;
+        const char *pname = *(const char **)(protoPtr + 8);
+        if (!pname || !DKIsPrintableString(pname, 256)) continue;
+        NSString *pn = [NSString stringWithUTF8String:pname];
+        if (pn.length) [names addObject:pn];
+    }
+    return names.count ? [names componentsJoinedByString:@", "] : nil;
+}
+
+
 static BOOL DKReadClassNameFast(uintptr_t clsPtr, char *outBuf, size_t outBufLen) {
     if (clsPtr == 0 || (clsPtr & 7)) return NO;
     if (!DKAddressInAnyLoadedImage(clsPtr, 40)) return NO;
