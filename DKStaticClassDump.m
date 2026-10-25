@@ -33,11 +33,19 @@ static sigjmp_buf gCrashJmp;
 static volatile int gCrashGuardActive = 0;
 static volatile int gCrashedThisAttempt = 0;
 
+static struct sigaction gOldSEGVAction;
+static struct sigaction gOldSIGBUSAction;
+
 static void DKCrashHandler(int sig) {
     if (gCrashGuardActive) {
         gCrashGuardActive = 0;
         gCrashedThisAttempt = 1;
         siglongjmp(gCrashJmp, 1);
+    }
+    struct sigaction *old = (sig == SIGSEGV) ? &gOldSEGVAction : &gOldSIGBUSAction;
+    if (old->sa_handler && old->sa_handler != SIG_DFL && old->sa_handler != SIG_IGN) {
+        old->sa_handler(sig);
+        return;
     }
     signal(sig, SIG_DFL);
     raise(sig);
@@ -51,8 +59,8 @@ static void DKInstallCrashHandlers(void) {
     sa.sa_handler = DKCrashHandler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_NODEFER;
-    sigaction(SIGSEGV, &sa, NULL);
-    sigaction(SIGBUS,  &sa, NULL);
+    sigaction(SIGSEGV, &sa, &gOldSEGVAction);
+    sigaction(SIGBUS, &sa, &gOldSIGBUSAction);
 }
 
 #define DK_TRY_BEGIN() \
@@ -111,6 +119,23 @@ static inline uintptr_t DKStripPAC(uint64_t raw) {
 }
 
 #pragma mark - 主入口
+
+static BOOL DKIsValidObjCClassPtr(uintptr_t clsPtr) {
+    if (clsPtr == 0 || (clsPtr & 0x7)) return NO;
+    if (!DKAddressInAnyLoadedImage(clsPtr, 40)) return NO;
+    uintptr_t isa = *(uintptr_t *)clsPtr;
+    if (isa == 0 || (isa & 0x7)) return NO;
+    if (!DKAddressInAnyLoadedImage(isa, 8)) return NO;
+    uintptr_t bits = *(uintptr_t *)(clsPtr + 32);
+    uintptr_t dataPtr = bits & ~(uintptr_t)0x7;
+    if (dataPtr == 0) return NO;
+    if (!DKAddressInAnyLoadedImage(dataPtr, 32)) return NO;
+    const char *name = *(const char **)(dataPtr + 24);
+    if (name == NULL) return NO;
+    if (!DKAddressInAnyLoadedImage((uintptr_t)name, 1)) return NO;
+    if (!DKIsPrintableString(name, 512)) return NO;
+    return YES;
+}
 
 void DKStaticDumpCategories(NSString *binaryPath,
                             void (^onCategory)(NSString *className,
@@ -195,7 +220,7 @@ void DKStaticDumpCategories(NSString *binaryPath,
                     uintptr_t clsPtr = DKStripPAC(fields[1]);
                     NSString *className = nil;
 
-                    if (clsPtr != 0 && !DKAddressInAnyLoadedImage(clsPtr, 8)) {
+                    if (clsPtr != 0 && !DKIsValidObjCClassPtr(clsPtr)) {
                         NSLog(@"[DKCAT-DIAG] skip bad clsPtr=%016lx name=%@",
                               (unsigned long)clsPtr, catName);
                         skipped++;
