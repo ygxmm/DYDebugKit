@@ -334,11 +334,9 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
             }
             seg = colon + 1;
         }
-        [out appendFormat:@"%@;
-", sig];
+        [out appendFormat:@"%@;\n", sig];
     }
     return out.length ? out : nil;
-}
 }
 
 static NSString *DKLookupClassBySEL(NSString *selName) {
