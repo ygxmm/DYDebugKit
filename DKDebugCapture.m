@@ -15,6 +15,8 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 
+static NSMutableSet<NSString *> *gPageSwiftClasses = nil;
+
 @implementation DKDebugExportContext
 @end
 
@@ -445,6 +447,11 @@ DKDebugExportContext *DKDebugCaptureMetadataContext(UIWindow *targetWindow) {
     context.sourceView = targetWindow;
     context.presenter = DKDebugTopPresenter(targetWindow);
     return context;
+}
+
+
+NSArray<NSString *> *DKGetCapturedPageSwiftClasses(void) {
+    return gPageSwiftClasses ? [gPageSwiftClasses allObjects] : @[];
 }
 
 DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView) {

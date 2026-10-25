@@ -239,7 +239,15 @@ static void DKWritePageFiles(DKExportSink *sink,
                              void (^progress)(NSString *text)) {
     if (progress) progress(@"写入页面结构...");
     DKWriteJSON(sink, @"page/windows.json", context.windowsJSON ?: @[], NO);
-    DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
+        NSArray *swiftArr = DKGetCapturedPageSwiftClasses();
+    if (swiftArr.count > 0) {
+        swiftArr = [swiftArr sortedArrayUsingSelector:@selector(compare:)];
+        NSString *swiftStr = [swiftArr componentsJoinedByString:@"\n"];
+        DKWriteString(sink, @"page/swift_classes.txt", swiftStr, NO);
+        
+    }
+    
+DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
     DKWriteJSON(sink, @"page/view-tree.json", context.viewTreeJSON ?: @[], NO);
     DKWriteJSON(sink, @"page/selected-view.json", context.selectedViewJSON ?: @{}, NO);
     DKWriteString(sink, @"page/view-controllers.txt", context.viewControllersText, NO);
