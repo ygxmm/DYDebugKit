@@ -25,7 +25,15 @@ static void DKScanLog(const char *fmt, ...) {
         if (path) gScanLog = fopen([path fileSystemRepresentation], "w");
         if (gScanLog) setvbuf(gScanLog, NULL, _IONBF, 0);
     }
-    if (gScanLog) { va_list ap; va_start(ap, fmt); vfprintf(gScanLog, fmt, ap); va_end(ap); fputc(10, gScanLog); }
+    if (!gScanLog) return;
+    @autoreleasepool {
+        va_list ap;
+        va_start(ap, fmt);
+        NSString *nfmt = [NSString stringWithUTF8String:fmt];
+        NSString *msg = nfmt ? [[NSString alloc] initWithFormat:nfmt arguments:ap] : nil;
+        va_end(ap);
+        if (msg) { const char *c = [msg UTF8String]; if (c) fprintf(gScanLog, "%s\n", c); }
+    }
 }
 
 static sigjmp_buf gCrashJmp;
