@@ -195,6 +195,13 @@ static void DKProcessCategory(uintptr_t catAddr,
         DK_TRY_END();
         if (gCrashedThisAttempt) className = nil;
     }
+    if (clsPtr == 0) {
+        DKScanLog("ZERO cat=%016lx f0=%016lx f1=%016lx f2=%016lx f3=%016lx name=%@ tag=%s",
+                  (unsigned long)catAddr,
+                  (unsigned long)fields[0], (unsigned long)fields[1],
+                  (unsigned long)fields[2], (unsigned long)fields[3],
+                  catName, tag);
+    }
     if (!className.length) className = @"_UnknownClass";
 
     NSMutableString *text = [NSMutableString string];
