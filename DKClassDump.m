@@ -216,7 +216,7 @@ static NSString *DKMethodLine(Method m, BOOL isClassMethod) {
     if (name.length == 0) return nil;
 
     unsigned int argCount = method_getNumberOfArguments(m);
-    if (![name containsString:@":"] || argCount <= 2) {
+    if (![name containsString:@":"]) {
         return [NSString stringWithFormat:@"%c (%@)%@;", isClassMethod ? '+' : '-', retType, name];
     }
 
