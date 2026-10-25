@@ -183,11 +183,29 @@ static void DKInitSELToClassMap(void) {
                 if (!map[snStr]) map[snStr] = cnStr;
             }
             free(ms);
+            // Also scan class methods (metaclass)
+            Class metaCls = object_getClass(cls);
+            if (metaCls && metaCls != cls) {
+                unsigned int cmc = 0;
+                Method *cms = class_copyMethodList(metaCls, &cmc);
+                if (cms) {
+                    for (unsigned int j = 0; j < cmc; j++) {
+                        SEL sel = method_getName(cms[j]);
+                        if (!sel) continue;
+                        const char *sn = sel_getName(sel);
+                        if (!sn) continue;
+                        NSString *snStr = [NSString stringWithUTF8String:sn];
+                        if (!snStr) continue;
+                        if (!map[snStr]) map[snStr] = cnStr;
+                    }
+                    free(cms);
+                }
+            }
         }
     }
     free(classes);
     gSELToClassMap = [map copy];
-    DKScanLog("SEL map built: %lu entries", (unsigned long)map.count);
+    DKScanLog("SEL map built: %lu entries (incl class methods)", (unsigned long)map.count);
 }
 
 static NSString *DKClassFromCategoryMethods(uintptr_t listAddr) {
