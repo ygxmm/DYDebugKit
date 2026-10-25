@@ -9,31 +9,14 @@
 #import <signal.h>
 #import <setjmp.h>
 #import <string.h>
-#include <stdio.h>
-#include <stdarg.h>
 #import "DKStaticClassDump.h"
 
 #pragma mark - Crash isolation
 
-static FILE *gScanLog = NULL;
 static void DKScanLog(const char *fmt, ...) {
-    if (!gScanLog) {
-        NSString *path = nil;
-        NSArray *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-        if (docs.count > 0) path = [docs[0] stringByAppendingPathComponent:@"tzyhb_last_scan.log"];
-        if (!path) path = [NSTemporaryDirectory() stringByAppendingPathComponent:@"tzyhb_last_scan.log"];
-        if (path) gScanLog = fopen([path fileSystemRepresentation], "w");
-        if (gScanLog) setvbuf(gScanLog, NULL, _IONBF, 0);
-    }
-    if (!gScanLog) return;
-    @autoreleasepool {
-        va_list ap;
-        va_start(ap, fmt);
-        NSString *nfmt = [NSString stringWithUTF8String:fmt];
-        NSString *msg = nfmt ? [[NSString alloc] initWithFormat:nfmt arguments:ap] : nil;
-        va_end(ap);
-        if (msg) { const char *c = [msg UTF8String]; if (c) fprintf(gScanLog, "%s\n", c); }
-    }
+    // Logging disabled (project finalized at v11.2)
+    (void)fmt;
+
 }
 
 static sigjmp_buf gCrashJmp;
