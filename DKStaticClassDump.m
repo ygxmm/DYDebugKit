@@ -87,9 +87,13 @@ static BOOL DKAddressInSegments(uintptr_t addr, const struct mach_header_64 *hea
     for (uint32_t i = 0; i < header->ncmds; i++) {
         if (cmd->cmd == LC_SEGMENT_64) {
             const struct segment_command_64 *seg = (const struct segment_command_64 *)cmd;
-            uintptr_t start = seg->vmaddr + slide;
-            uintptr_t end = start + seg->vmsize;
-            if (addr >= start && addr + minLen <= end) return YES;
+            if (seg->filesize != 0 && seg->initprot != 0
+                && seg->vmsize <= (1ULL << 30)
+                && strcmp(seg->segname, "__PAGEZERO") != 0) {
+                uintptr_t start = seg->vmaddr + slide;
+                uintptr_t end = start + seg->vmsize;
+                if (addr >= start && addr + minLen <= end) return YES;
+            }
         }
         cmd = (const struct load_command *)((const uint8_t *)cmd + cmd->cmdsize);
     }
