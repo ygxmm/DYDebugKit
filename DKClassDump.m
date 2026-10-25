@@ -100,24 +100,12 @@ BOOL DKClassNameIsRuntimeGenerated(NSString *name) {
 #pragma mark - 类型编码 → 可读类型
 
 static NSString *DKTypeFromEncoding(const char *encoding) {
-    if (!encoding) return @"id";
-    NSString *e = DKCString(encoding);
-    if (e.length == 0) return @"id";
-
-    if ([e hasPrefix:@"@\""]) {
-        NSRange r1 = [e rangeOfString:@"\""];
-        NSRange r2 = [e rangeOfString:@"\"" options:NSBackwardsSearch];
-        if (r1.location != NSNotFound && r2.location != NSNotFound && r2.location > r1.location) {
-            NSString *cls = [e substringWithRange:NSMakeRange(r1.location + 1, r2.location - r1.location - 1)];
-            if (cls.length) return [NSString stringWithFormat:@"%@ *", cls];
-        }
-    }
-
-    switch ([e characterAtIndex:0]) {
+    if (!encoding || !*encoding) return @"id";
+    const char *s = encoding;
+    while (*s == 'r' || *s == 'n' || *s == 'N' || *s == 'o' || *s == 'O' || *s == 'R' || *s == 'V') s++;
+    char c = *s;
+    switch (c) {
         case 'v': return @"void";
-        case '@': return @"id";
-        case '#': return @"Class";
-        case ':': return @"SEL";
         case 'c': return @"char";
         case 'C': return @"unsigned char";
         case 's': return @"short";
@@ -130,12 +118,56 @@ static NSString *DKTypeFromEncoding(const char *encoding) {
         case 'Q': return @"unsigned long long";
         case 'f': return @"float";
         case 'd': return @"double";
+        case 'D': return @"long double";
         case 'B': return @"BOOL";
         case '*': return @"char *";
-        case '^': return @"void *";
-        case '{': return @"struct";
-        case '[': return @"void *";
-        default:  return @"id";
+        case ':': return @"SEL";
+        case '#': return @"Class";
+        case '?': return @"void *";
+        case '@':
+            if (s[1] == '"') {
+                const char *st = s + 2;
+                const char *en = strchr(st, '"');
+                if (en) {
+                    NSString *nm = [[NSString alloc] initWithBytes:st
+                        length:(NSUInteger)(en - st)
+                        encoding:NSUTF8StringEncoding];
+                    if (nm.length > 0 && [nm characterAtIndex:0] != '<') {
+                        return [NSString stringWithFormat:@"%@ *", nm];
+                    }
+                }
+            }
+            return @"id";
+        case '^': {
+            NSString *inner = DKTypeFromEncoding(s + 1);
+            return [NSString stringWithFormat:@"%@ *", inner];
+        }
+        case '{': {
+            const char *pp = s + 1;
+            const char *ns = pp;
+            while (*pp && *pp != '=' && *pp != '}') pp++;
+            size_t nl = (size_t)(pp - ns);
+            if (nl > 0) {
+                char b[128] = {0};
+                size_t nn = nl < 127 ? nl : 127;
+                memcpy(b, ns, nn);
+                NSString *nm = [NSString stringWithUTF8String:b];
+                if (nm.length > 0) {
+                    if ([nm hasPrefix:@"_"]) nm = [nm substringFromIndex:1];
+                    return nm;
+                }
+            }
+            return @"void *";
+        }
+        case '(': return @"void *";
+        case '[': {
+            const char *pp = s + 1;
+            while (*pp >= '0' && *pp <= '9') pp++;
+            NSString *inner = DKTypeFromEncoding(pp);
+            return [NSString stringWithFormat:@"%@ *", inner];
+        }
+        case 'b': return @"unsigned int";
+        default: return @"id";
     }
 }
 
@@ -196,9 +228,9 @@ static NSString *DKMethodLine(Method m, BOOL isClassMethod) {
         NSString *argType = DKTypeFromEncoding(argTypeRaw);
         if (argTypeRaw) free(argTypeRaw);
         if (i == 0) {
-            [line appendFormat:@"%@:(%@)arg%lu", label.length ? label : @"method", argType, (unsigned long)i];
+            [line appendFormat:@"%@:(%@)arg%lu", label.length ? label : @"method", argType, (unsigned long)(i + 2)];
         } else {
-            [line appendFormat:@" %@:(%@)arg%lu", label.length ? label : @"param", argType, (unsigned long)i];
+            [line appendFormat:@" %@:(%@)arg%lu", label.length ? label : @"param", argType, (unsigned long)(i + 2)];
         }
     }
     [line appendString:@";"];
