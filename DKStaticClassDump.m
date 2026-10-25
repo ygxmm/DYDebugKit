@@ -293,15 +293,32 @@ static NSString *DKLookupClassBySEL(NSString *selName) {
                     if (!clsName) continue;
                     unsigned int mc = 0;
                     Method *ms = class_copyMethodList(cls, &mc);
-                    if (!ms) continue;
-                    for (unsigned int j = 0; j < mc; j++) {
-                        SEL sel = method_getName(ms[j]);
-                        if (!sel) continue;
-                        NSString *sn = [NSString stringWithUTF8String:sel_getName(sel)];
-                        if (!sn) continue;
-                        if (!map[sn]) map[sn] = clsName;
+                    if (ms) {
+                        for (unsigned int j = 0; j < mc; j++) {
+                            SEL sel = method_getName(ms[j]);
+                            if (!sel) continue;
+                            NSString *sn = [NSString stringWithUTF8String:sel_getName(sel)];
+                            if (!sn) continue;
+                            if (!map[sn]) map[sn] = clsName;
+                        }
+                        free(ms);
                     }
-                    free(ms);
+                    // class methods (metaclass)
+                    Class metaCls = object_getClass(cls);
+                    if (metaCls && metaCls != cls) {
+                        unsigned int cmc = 0;
+                        Method *cms = class_copyMethodList(metaCls, &cmc);
+                        if (cms) {
+                            for (unsigned int j = 0; j < cmc; j++) {
+                                SEL sel = method_getName(cms[j]);
+                                if (!sel) continue;
+                                NSString *sn = [NSString stringWithUTF8String:sel_getName(sel)];
+                                if (!sn) continue;
+                                if (!map[sn]) map[sn] = clsName;
+                            }
+                            free(cms);
+                        }
+                    }
                 }
             }
             free(classes);
@@ -415,31 +432,35 @@ static void DKProcessCategory(uintptr_t catAddr,
             DKScanLog("REVERSE cls=%@ -> class=%@", catName, rev);
         }
     }
-    if (!className.length && fields[2] != 0) {
-        uintptr_t listAddr = DKStripPAC(fields[2]);
-        if (listAddr && DKAddressInAnyLoadedImage(listAddr, 8)) {
-            uint32_t eFlags = *(uint32_t *)listAddr;
-            uint32_t cnt = *(uint32_t *)(listAddr + 4);
-            uint32_t e = eFlags & 0xFFFFFFFC;
-            BOOL rel = (eFlags & 0x80000000) != 0 || e == 12;
-            if (cnt > 0 && (e == 24 || e == 12)) {
-                uintptr_t entry = listAddr + 8;
-                const char *selName = NULL;
-                if (rel) {
-                    int32_t r = *(int32_t *)entry;
-                    uintptr_t na = entry + (intptr_t)r;
-                    if (DKAddressInAnyLoadedImage(na, 1)) selName = (const char *)na;
-                } else {
-                    uintptr_t np = *(uintptr_t *)entry;
-                    np &= 0x0000FFFFFFFFFFFF;
-                    if (DKAddressInAnyLoadedImage(np, 1)) selName = (const char *)np;
-                }
-                if (selName && DKIsPrintableString(selName, 256)) {
-                    NSString *found = DKLookupClassBySEL([NSString stringWithUTF8String:selName]);
-                    if (found) {
-                        className = found;
-                        DKScanLog("REVERSE sel=%s -> class=%@", selName, found);
-                    }
+    // Try fields[2] (instanceMethods) then fields[3] (classMethods)
+    for (int _slot = 2; _slot <= 3 && !className.length; _slot++) {
+        if (fields[_slot] == 0) continue;
+        uintptr_t listAddr = DKStripPAC(fields[_slot]);
+        if (!listAddr || !DKAddressInAnyLoadedImage(listAddr, 8)) continue;
+        uint32_t eFlags = *(uint32_t *)listAddr;
+        uint32_t cnt = *(uint32_t *)(listAddr + 4);
+        uint32_t e = eFlags & 0xFFFFFFFC;
+        BOOL rel = (eFlags & 0x80000000) != 0 || e == 12;
+        if (cnt == 0 || (e != 24 && e != 12)) continue;
+        uint32_t lim = cnt < 8 ? cnt : 8;
+        for (uint32_t _mi = 0; _mi < lim && !className.length; _mi++) {
+            uintptr_t entry = listAddr + 8 + (uintptr_t)_mi * e;
+            if (!DKAddressInAnyLoadedImage(entry, 8)) break;
+            const char *selName = NULL;
+            if (rel) {
+                int32_t r = *(int32_t *)entry;
+                uintptr_t na = entry + (intptr_t)r;
+                if (DKAddressInAnyLoadedImage(na, 1)) selName = (const char *)na;
+            } else {
+                uintptr_t np = *(uintptr_t *)entry;
+                np &= 0x0000FFFFFFFFFFFF;
+                if (DKAddressInAnyLoadedImage(np, 1)) selName = (const char *)np;
+            }
+            if (selName && DKIsPrintableString(selName, 256)) {
+                NSString *found = DKLookupClassBySEL([NSString stringWithUTF8String:selName]);
+                if (found) {
+                    className = found;
+                    DKScanLog("REVERSE slot=%d sel=%s -> class=%@", _slot, selName, found);
                 }
             }
         }
