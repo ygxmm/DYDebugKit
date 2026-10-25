@@ -406,6 +406,11 @@ static void DKCollectClassAndSupers(Class cls, NSMutableSet<NSString *> *names) 
 // 递归收集视图子树里每个 view 及其 layer 的类（含继承链）。
 static void DKCollectPageClassesFromView(UIView *view, NSMutableSet<NSString *> *names) {
     if (!view) return;
+    NSString *vClsName = NSStringFromClass(object_getClass(view));
+    if ([vClsName containsString:@"."] || [vClsName hasPrefix:@"_TtC"]) {
+        if (!gPageSwiftClasses) gPageSwiftClasses = [NSMutableSet set];
+        [gPageSwiftClasses addObject:vClsName];
+    }
     DKCollectClassAndSupers(object_getClass(view), names);
     DKCollectClassAndSupers(object_getClass(view.layer), names);
     for (UIView *sub in view.subviews) DKCollectPageClassesFromView(sub, names);
@@ -415,6 +420,11 @@ static void DKCollectPageClassesFromView(UIView *view, NSMutableSet<NSString *> 
 static void DKCollectPageClassesFromVC(UIViewController *vc, NSMutableSet<NSString *> *names, NSHashTable *seen) {
     if (!vc || [seen containsObject:vc]) return;
     [seen addObject:vc];
+    NSString *vcClsName = NSStringFromClass(object_getClass(vc));
+    if ([vcClsName containsString:@"."] || [vcClsName hasPrefix:@"_TtC"]) {
+        if (!gPageSwiftClasses) gPageSwiftClasses = [NSMutableSet set];
+        [gPageSwiftClasses addObject:vcClsName];
+    }
     DKCollectClassAndSupers(object_getClass(vc), names);
     if (vc.isViewLoaded) DKCollectClassAndSupers(object_getClass(vc.view), names);
     for (UIViewController *child in vc.childViewControllers) DKCollectPageClassesFromVC(child, names, seen);
