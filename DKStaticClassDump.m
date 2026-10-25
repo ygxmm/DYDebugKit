@@ -36,7 +36,6 @@ static void DKScanLog(const char *fmt, ...) {
     }
 }
 
-static int gCatProbeCount = 0;
 static sigjmp_buf gCrashJmp;
 static volatile int gCrashGuardActive = 0;
 static volatile int gCrashedThisAttempt = 0;
@@ -404,11 +403,6 @@ static void DKProcessCategory(uintptr_t catAddr,
                 DKScanLog("  PROBE f3 entsize=%u count=%u", e, c);
             }
         }
-        DKScanLog("ZERO cat=%016lx f0=%016lx f1=%016lx f2=%016lx f3=%016lx name=%@ tag=%s",
-                  (unsigned long)catAddr,
-                  (unsigned long)fields[0], (unsigned long)fields[1],
-                  (unsigned long)fields[2], (unsigned long)fields[3],
-                  catName, tag);
     }
     if (!className.length) {
         for (int _off = 2; _off <= 5; _off++) {
