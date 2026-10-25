@@ -224,9 +224,11 @@ static NSString *DKClassFromCategoryMethods(uintptr_t listAddr) {
 }
 
 
-static NSString *DKDecodeTypeEncoding(const char *type) {
+static NSString *DKDecodeTypeEncoding(const char *type, size_t *outLen) {
+    if (outLen) *outLen = 0;
     if (!type || !*type) return @"id";
     char c = type[0];
+    if (outLen) *outLen = 1;
     switch (c) {
         case 'v': return @"void";
         case 'c': return @"char";
@@ -244,9 +246,60 @@ static NSString *DKDecodeTypeEncoding(const char *type) {
         case 'B': return @"BOOL";
         case '*': return @"char *";
         case ':': return @"SEL";
-        case '@': return @"id";
-        case '^': return @"void *";
-        case '{': return @"struct";
+        case '#': return @"Class";
+        case '?': return @"void *";
+        case '@':
+            if (type[1] == '?') { if (outLen) *outLen = 2; return @"id"; }
+            return @"id";
+        case '^': {
+            size_t n = 0;
+            NSString *t = DKDecodeTypeEncoding(type + 1, &n);
+            if (outLen) *outLen = 1 + n;
+            return [NSString stringWithFormat:@"%@ *", t];
+        }
+        case '{': {
+            const char *p = type + 1, *ns = p;
+            while (*p && *p != '=' && *p != '}') p++;
+            size_t nl = (size_t)(p - ns);
+            if (*p == '=') {
+                int dd = 1; p++;
+                while (*p && dd > 0) { if (*p == '{') dd++; else if (*p == '}') dd--; p++; }
+            } else if (*p == '}') { p++; }
+            if (outLen) *outLen = (size_t)(p - type);
+            if (nl > 0) {
+                char b[128] = {0};
+                size_t n2 = nl < 127 ? nl : 127;
+                memcpy(b, ns, n2);
+                NSString *nm = [NSString stringWithUTF8String:b];
+                if (nm.length > 0) {
+                    if ([nm hasPrefix:@"_"]) nm = [nm substringFromIndex:1];
+                    return nm;
+                }
+            }
+            return @"void *";
+        }
+        case '(': {
+            int dd = 1; const char *p = type + 1;
+            while (*p && dd > 0) { if (*p == '(') dd++; else if (*p == ')') dd--; p++; }
+            if (outLen) *outLen = (size_t)(p - type);
+            return @"void *";
+        }
+        case '[': {
+            const char *p = type + 1;
+            while (*p >= '0' && *p <= '9') p++;
+            size_t n = 0;
+            NSString *t = DKDecodeTypeEncoding(p, &n);
+            p += n;
+            if (*p == ']') p++;
+            if (outLen) *outLen = (size_t)(p - type);
+            return [NSString stringWithFormat:@"%@ *", t];
+        }
+        case 'b': {
+            const char *p = type + 1;
+            while (*p >= '0' && *p <= '9') p++;
+            if (outLen) *outLen = (size_t)(p - type);
+            return @"unsigned int";
+        }
         default: return @"id";
     }
 }
@@ -287,7 +340,7 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
         if (!selName || !DKIsPrintableString(selName, 256)) continue;
         
         NSString *retType = @"void";
-        if (types) retType = DKDecodeTypeEncoding(types);
+        if (types) retType = DKDecodeTypeEncoding(types, NULL);
         
         NSMutableString *sig = [NSMutableString string];
         [sig appendFormat:@"%s (%@)", sigil, retType];
@@ -319,9 +372,9 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
                 while (*typePtr >= '0' && *typePtr <= '9') typePtr++;
                 
                 if (*typePtr) {
-                    argType = DKDecodeTypeEncoding(typePtr);
+                    size_t consumed=0; argType=DKDecodeTypeEncoding(typePtr,&consumed); if(consumed>0) typePtr+=consumed;
                     // 简单向后推移
-                    while (*typePtr && *typePtr != '@' && *typePtr != ':' && !(*typePtr >= '0' && *typePtr <= '9')) typePtr++;
+                    while (*typePtr >= '0' && *typePtr <= '9') typePtr++;
                 }
             }
             
