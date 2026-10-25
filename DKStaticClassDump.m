@@ -381,6 +381,35 @@ static void DKProcessCategory(uintptr_t catAddr,
             DKScanLog("REVERSE cls=%@ -> class=%@", catName, rev);
         }
     }
+    if (!className.length && fields[2] != 0) {
+        uintptr_t listAddr = DKStripPAC(fields[2]);
+        if (listAddr && DKAddressInAnyLoadedImage(listAddr, 8)) {
+            uint32_t eFlags = *(uint32_t *)listAddr;
+            uint32_t cnt = *(uint32_t *)(listAddr + 4);
+            uint32_t e = eFlags & 0xFFFFFFFC;
+            BOOL rel = (eFlags & 0x80000000) != 0 || e == 12;
+            if (cnt > 0 && (e == 24 || e == 12)) {
+                uintptr_t entry = listAddr + 8;
+                const char *selName = NULL;
+                if (rel) {
+                    int32_t r = *(int32_t *)entry;
+                    uintptr_t na = entry + (intptr_t)r;
+                    if (DKAddressInAnyLoadedImage(na, 1)) selName = (const char *)na;
+                } else {
+                    uintptr_t np = *(uintptr_t *)entry;
+                    np &= 0x0000FFFFFFFFFFFF;
+                    if (DKAddressInAnyLoadedImage(np, 1)) selName = (const char *)np;
+                }
+                if (selName && DKIsPrintableString(selName, 256)) {
+                    NSString *found = DKLookupClassBySEL([NSString stringWithUTF8String:selName]);
+                    if (found) {
+                        className = found;
+                        DKScanLog("REVERSE sel=%s -> class=%@", selName, found);
+                    }
+                }
+            }
+        }
+    }
     if (!className.length) className = @"_UnknownClass";
 
     NSMutableString *text = [NSMutableString string];
@@ -397,7 +426,15 @@ static void DKProcessCategory(uintptr_t catAddr,
         clsDecls = DKMethodListToDecls(DKStripPAC(fields[3]), "+");
     }
     [text appendFormat:@"// scanned from %s\n//\n\n", tag];
-    [text appendFormat:@"@interface %@ (%@)\n\n", className, catName];
+    NSString *protoStr = nil;
+    if (fields[4] != 0) {
+        protoStr = DKReadProtocols(DKStripPAC(fields[4]));
+    }
+    if (protoStr.length) {
+        [text appendFormat:@"@interface %@ (%@) <%@>\n\n", className, catName, protoStr];
+    } else {
+        [text appendFormat:@"@interface %@ (%@)\n\n", className, catName];
+    }
     if (instDecls.length) [text appendFormat:@"// instanceMethods\n%@\n", instDecls];
     if (clsDecls.length)  [text appendFormat:@"// classMethods\n%@\n", clsDecls];
     [text appendString:@"@end\n"];
