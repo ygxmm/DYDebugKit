@@ -9,9 +9,17 @@
 #import <signal.h>
 #import <setjmp.h>
 #import <string.h>
+#include <stdio.h>
+#include <stdarg.h>
 #import "DKStaticClassDump.h"
 
 #pragma mark - Crash isolation
+
+static FILE *gScanLog = NULL;
+static void DKScanLog(const char *fmt, ...) {
+    if (!gScanLog) { gScanLog = fopen("/var/mobile/dyyy/tzyhb/last_scan.log", "w"); if (gScanLog) setvbuf(gScanLog, NULL, _IONBF, 0); }
+    if (gScanLog) { va_list ap; va_start(ap, fmt); vfprintf(gScanLog, fmt, ap); va_end(ap); fputc(10, gScanLog); }
+}
 
 static sigjmp_buf gCrashJmp;
 static volatile int gCrashGuardActive = 0;
@@ -126,6 +134,23 @@ static BOOL DKIsValidObjCClassPtr(uintptr_t clsPtr) {
 
 #pragma mark - Per-entry handling
 
+static BOOL DKReadClassNameFast(uintptr_t clsPtr, char *outBuf, size_t outBufLen) {
+    if (clsPtr == 0 || (clsPtr & 7)) return NO;
+    if (!DKAddressInAnyLoadedImage(clsPtr, 40)) return NO;
+    uintptr_t bits = *(uintptr_t *)(clsPtr + 32);
+    uintptr_t ro = bits & ~(uintptr_t)0x7;
+    if (ro == 0) return NO;
+    if (!DKAddressInAnyLoadedImage(ro, 32)) return NO;
+    const char *name = *(const char **)(ro + 24);
+    if (name == NULL) return NO;
+    if (!DKAddressInAnyLoadedImage((uintptr_t)name, 1)) return NO;
+    if (!DKIsPrintableString(name, 512)) return NO;
+    size_t len = strlen(name);
+    if (len >= outBufLen) len = outBufLen - 1;
+    memcpy(outBuf, name, len); outBuf[len] = 0;
+    return YES;
+}
+
 static void DKProcessCategory(uintptr_t catAddr,
                               const struct mach_header_64 *header,
                               intptr_t slide,
@@ -154,10 +179,11 @@ static void DKProcessCategory(uintptr_t catAddr,
     }
     if (clsPtr != 0) {
         DK_TRY_BEGIN();
-        Class cls = (__bridge Class)(void *)clsPtr;
-        const char *clsNameC = class_getName(cls);
-        if (clsNameC && DKIsPrintableString(clsNameC, 512)) {
-            className = [NSString stringWithUTF8String:clsNameC];
+        char _nameBuf[512];
+        if (DKReadClassNameFast(clsPtr, _nameBuf, sizeof(_nameBuf))) {
+            className = [NSString stringWithUTF8String:_nameBuf];
+        } else {
+            DKScanLog("bad cls=%016lx name=%@", (unsigned long)clsPtr, catName);
         }
         DK_TRY_END();
         if (gCrashedThisAttempt) className = nil;
@@ -265,4 +291,6 @@ void DKStaticDumpCategories(NSString *binaryPath,
     NSLog(@"[DKStatic] done: total=%lu skipped=%lu seenCatlist=%lu seenCatlist2=%lu",
           (unsigned long)totalCats, (unsigned long)skipped,
           (unsigned long)seenCatlist, (unsigned long)seenCatlist2);
+
+    DKScanLog("DONE total=%lu skipped=%lu seenCatlist=%lu seenCatlist2=%lu", (unsigned long)totalCats, (unsigned long)skipped, (unsigned long)seenCatlist, (unsigned long)seenCatlist2);
 }
