@@ -212,9 +212,10 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
     @try {
         NSString *className = NSStringFromClass(cls);
         if (className.length == 0) return nil;
-        if (DKIsLikelySwiftName(className)) {
+        // 仅对纯 Swift mangled name (如 _TtC...) 跳过，允许带点(.)的 ObjC 兼容类强行输出
+        if ([className hasPrefix:@"_Tt"] || [className hasPrefix:@"Swift."] || [className hasPrefix:@"SwiftUI."]) {
             return [NSString stringWithFormat:
-                    @"// Runtime class: %@\n// Image: %@\n// 该名称不是有效的 Objective-C 标识符，无法生成头文件。\n",
+                    @"// Runtime class: %@\n// Image: %@\n// 纯 Swift 类 (mangled name)，未暴露为 ObjC 类\n",
                     className, imageName ?: @"Unknown"];
         }
 
