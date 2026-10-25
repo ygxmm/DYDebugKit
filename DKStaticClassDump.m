@@ -17,7 +17,14 @@
 
 static FILE *gScanLog = NULL;
 static void DKScanLog(const char *fmt, ...) {
-    if (!gScanLog) { gScanLog = fopen("/var/mobile/dyyy/tzyhb/last_scan.log", "w"); if (gScanLog) setvbuf(gScanLog, NULL, _IONBF, 0); }
+    if (!gScanLog) {
+        NSString *path = nil;
+        NSArray *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        if (docs.count > 0) path = [docs[0] stringByAppendingPathComponent:@"tzyhb_last_scan.log"];
+        if (!path) path = [NSTemporaryDirectory() stringByAppendingPathComponent:@"tzyhb_last_scan.log"];
+        if (path) gScanLog = fopen([path fileSystemRepresentation], "w");
+        if (gScanLog) setvbuf(gScanLog, NULL, _IONBF, 0);
+    }
     if (gScanLog) { va_list ap; va_start(ap, fmt); vfprintf(gScanLog, fmt, ap); va_end(ap); fputc(10, gScanLog); }
 }
 
@@ -205,6 +212,7 @@ void DKStaticDumpCategories(NSString *binaryPath,
                             void (^onCategory)(NSString *className,
                                                NSString *categoryName,
                                                NSString *text)) {
+    DKScanLog("=== ENTER v5 ===");
     if (!onCategory) return;
     DKInstallCrashHandlers();
     NSLog(@"[DKStatic] scanning categories v4...");
