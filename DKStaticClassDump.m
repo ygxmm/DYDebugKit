@@ -387,23 +387,7 @@ static void DKProcessCategory(uintptr_t catAddr,
         if (gCrashedThisAttempt) className = nil;
     }
     if (clsPtr == 0) {
-        if (gCatProbeCount < 20) {
-            gCatProbeCount++;
-            uintptr_t _f2 = DKStripPAC(fields[2]);
-            uintptr_t _f3 = DKStripPAC(fields[3]);
-            uintptr_t _f4 = DKStripPAC(fields[4]);
-            DKScanLog("CATPROBE cat=%@ f2=%016lx f3=%016lx f4=%016lx",
-                      catName, (unsigned long)_f2, (unsigned long)_f3, (unsigned long)_f4);
-            if (_f2 != 0 && DKAddressInAnyLoadedImage(_f2, 8)) {
-                uint32_t e = *(uint32_t *)_f2, c = *(uint32_t *)(_f2 + 4);
-                DKScanLog("  PROBE f2 entsize=%u count=%u", e, c);
             }
-            if (_f3 != 0 && DKAddressInAnyLoadedImage(_f3, 8)) {
-                uint32_t e = *(uint32_t *)_f3, c = *(uint32_t *)(_f3 + 4);
-                DKScanLog("  PROBE f3 entsize=%u count=%u", e, c);
-            }
-        }
-    }
     if (!className.length) {
         for (int _off = 2; _off <= 5; _off++) {
             uintptr_t _cand = DKStripPAC(fields[_off]);
