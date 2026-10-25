@@ -351,9 +351,15 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
         
         // 跳过返回值、self(@)、_cmd(:)
         if (typePtr) {
-            while (*typePtr && *typePtr != '@' && *typePtr != ':') typePtr++;
+            while (*typePtr == 'r' || *typePtr == 'n' || *typePtr == 'N' || *typePtr == 'o' || *typePtr == 'O' || *typePtr == 'R' || *typePtr == 'V') typePtr++;
+            size_t rconsumed = 0;
+            DKDecodeTypeEncoding(typePtr, &rconsumed);
+            if (rconsumed > 0) typePtr += rconsumed;
+            while (*typePtr >= '0' && *typePtr <= '9') typePtr++;
             if (*typePtr == '@') typePtr++;
+            while (*typePtr >= '0' && *typePtr <= '9') typePtr++;
             if (*typePtr == ':') typePtr++;
+            while (*typePtr >= '0' && *typePtr <= '9') typePtr++;
         }
         
         while (*seg) {
@@ -453,7 +459,9 @@ static NSString *DKReadProtocols(uintptr_t protoListAddr) {
     if (count == 0 || count > 200) return nil;
     NSMutableArray<NSString *> *names = [NSMutableArray array];
     for (uint64_t i = 0; i < count; i++) {
-        uintptr_t protoPtr = *(uintptr_t *)(protoListAddr + 8 + i * 8);
+        uintptr_t slot = protoListAddr + 8 + (uintptr_t)i * 8;
+        if (!DKAddressInAnyLoadedImage(slot, 8)) break;
+        uintptr_t protoPtr = *(uintptr_t *)slot;
         protoPtr &= 0x0000FFFFFFFFFFFF;
         if (!DKAddressInAnyLoadedImage(protoPtr, 16)) continue;
         const char *pname = *(const char **)(protoPtr + 8);
@@ -519,8 +527,6 @@ static void DKProcessCategory(uintptr_t catAddr,
         DK_TRY_END();
         if (gCrashedThisAttempt) className = nil;
     }
-    if (clsPtr == 0) {
-            }
     if (!className.length) {
         for (int _off = 2; _off <= 5; _off++) {
             uintptr_t _cand = DKStripPAC(fields[_off]);
@@ -597,6 +603,50 @@ static void DKProcessCategory(uintptr_t catAddr,
         clsDecls = DKMethodListToDecls(DKStripPAC(fields[3]), "+");
     }
     [text appendFormat:@"// scanned from %s\n//\n\n", tag];
+    NSString *propDecls = nil;
+    if (fields[5] != 0) {
+        uintptr_t pl = DKStripPAC(fields[5]);
+        if (pl && DKAddressInAnyLoadedImage(pl, 8)) {
+            uint32_t pcnt = *(uint32_t *)(pl + 4);
+            uint32_t pe = *(uint32_t *)pl & 0xFFFFFFFC;
+            if (pcnt > 0 && pcnt < 200 && pe == 12) {
+                NSMutableString *ps = [NSMutableString string];
+                for (uint32_t pi = 0; pi < pcnt; pi++) {
+                    uintptr_t pe2 = pl + 8 + (uintptr_t)pi * 12;
+                    if (!DKAddressInAnyLoadedImage(pe2, 12)) break;
+                    int32_t no = *(int32_t *)pe2;
+                    int32_t ao = *(int32_t *)(pe2 + 4);
+                    uintptr_t np2 = pe2 + (intptr_t)no;
+                    uintptr_t ap2 = pe2 + (intptr_t)ao;
+                    if (!DKAddressInAnyLoadedImage(np2, 1)) continue;
+                    if (!DKAddressInAnyLoadedImage(ap2, 1)) continue;
+                    const char *pn = (const char *)np2;
+                    const char *pa = (const char *)ap2;
+                    if (!DKIsPrintableString(pn, 256)) continue;
+                    if (!DKIsPrintableString(pa, 1024)) continue;
+                    const char *t = pa;
+                    if (*t == 'T') t++;
+                    char tb[256] = {0};
+                    size_t ti = 0;
+                    while (*t && *t != ',' && ti < 255) tb[ti++] = *t;
+                    NSString *ts = @"id";
+                    if (tb[0] == '@' && tb[1] == '"') {
+                        size_t tl = strlen(tb);
+                        if (tl > 3 && tb[tl-1] == '"') {
+                            NSString *cn = [[NSString alloc] initWithBytes:tb+2 length:tl-3 encoding:NSUTF8StringEncoding];
+                            if (cn.length) ts = [NSString stringWithFormat:@"%@ *", cn];
+                        }
+                    } else if (tb[0] == '@') {
+                        ts = @"id";
+                    } else if (tb[0]) {
+                        ts = DKDecodeTypeEncoding(tb, NULL);
+                    }
+                    [ps appendFormat:@"@property %@ %s;\n", ts, pn];
+                }
+                if (ps.length) propDecls = ps;
+            }
+        }
+    }
     NSString *protoStr = nil;
     if (fields[4] != 0) {
         protoStr = DKReadProtocols(DKStripPAC(fields[4]));
@@ -606,6 +656,7 @@ static void DKProcessCategory(uintptr_t catAddr,
     } else {
         [text appendFormat:@"@interface %@ (%@)\n\n", className, catName];
     }
+    if (propDecls.length)  [text appendFormat:@"// properties\n%@\n", propDecls];
     if (instDecls.length) [text appendFormat:@"// instanceMethods\n%@\n", instDecls];
     if (clsDecls.length)  [text appendFormat:@"// classMethods\n%@\n", clsDecls];
     [text appendString:@"@end\n"];
