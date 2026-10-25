@@ -202,6 +202,19 @@ static void DKProcessCategory(uintptr_t catAddr,
                   (unsigned long)fields[2], (unsigned long)fields[3],
                   catName, tag);
     }
+    if (!className.length) {
+        for (int _off = 2; _off <= 5; _off++) {
+            uintptr_t _cand = DKStripPAC(fields[_off]);
+            if (_cand == 0) continue;
+            char _cb[512];
+            if (DKReadClassNameFast(_cand, _cb, sizeof(_cb))) {
+                className = [NSString stringWithUTF8String:_cb];
+                DKScanLog("FOUND cls off=%d cat=%@ val=%016lx",
+                          _off, catName, (unsigned long)_cand);
+                break;
+            }
+        }
+    }
     if (!className.length) className = @"_UnknownClass";
 
     NSMutableString *text = [NSMutableString string];
