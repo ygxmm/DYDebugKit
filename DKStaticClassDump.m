@@ -154,6 +154,75 @@ static BOOL DKIsValidObjCClassPtr(uintptr_t clsPtr) {
 
 #pragma mark - Per-entry handling
 
+static NSDictionary<NSString *, NSString *> *gSELToClassMap = nil;
+
+static void DKInitSELToClassMap(void) {
+    if (gSELToClassMap) return;
+    NSMutableDictionary *map = [NSMutableDictionary dictionaryWithCapacity:400000];
+    uint32_t total = 0;
+    Class *classes = objc_copyClassList(&total);
+    if (!classes) { gSELToClassMap = @{}; return; }
+    DKScanLog("SEL map building: %u classes", total);
+    for (uint32_t i = 0; i < total; i++) {
+        @autoreleasepool {
+            Class cls = classes[i];
+            if (!cls) continue;
+            const char *cn = class_getName(cls);
+            if (!cn) continue;
+            NSString *cnStr = [NSString stringWithUTF8String:cn];
+            if (!cnStr) continue;
+            unsigned int mc = 0;
+            Method *ms = class_copyMethodList(cls, &mc);
+            if (!ms) continue;
+            for (unsigned int j = 0; j < mc; j++) {
+                SEL s = method_getName(ms[j]);
+                if (!s) continue;
+                const char *sn = sel_getName(s);
+                if (!sn) continue;
+                NSString *snStr = [NSString stringWithUTF8String:sn];
+                if (!snStr) continue;
+                if (!map[snStr]) map[snStr] = cnStr;
+            }
+            free(ms);
+        }
+    }
+    free(classes);
+    gSELToClassMap = [map copy];
+    DKScanLog("SEL map built: %lu entries", (unsigned long)map.count);
+}
+
+static NSString *DKClassFromCategoryMethods(uintptr_t listAddr) {
+    if (!gSELToClassMap || listAddr == 0) return nil;
+    if (!DKAddressInAnyLoadedImage(listAddr, 8)) return nil;
+    uint32_t eFlags = *(uint32_t *)listAddr;
+    uint32_t count = *(uint32_t *)(listAddr + 4);
+    if (count == 0 || count > 5000) return nil;
+    uint32_t e = eFlags & 0xFFFFFFFC;
+    BOOL rel = (eFlags & 0x80000000) != 0 || e == 12;
+    if (e != 24 && e != 12) return nil;
+    NSUInteger lim = count < 8 ? count : 8;
+    for (NSUInteger i = 0; i < lim; i++) {
+        uintptr_t entry = listAddr + 8 + i * e;
+        if (!DKAddressInAnyLoadedImage(entry, 8)) break;
+        const char *name = NULL;
+        if (rel) {
+            int32_t r = *(int32_t *)entry;
+            uintptr_t na = entry + (intptr_t)r;
+            if (DKAddressInAnyLoadedImage(na, 1)) name = (const char *)na;
+        } else {
+            uintptr_t np = *(uintptr_t *)entry;
+            np &= 0x0000FFFFFFFFFFFF;
+            if (DKAddressInAnyLoadedImage(np, 1)) name = (const char *)np;
+        }
+        if (!name || !DKIsPrintableString(name, 256)) continue;
+        NSString *snStr = [NSString stringWithUTF8String:name];
+        if (!snStr) continue;
+        NSString *hit = gSELToClassMap[snStr];
+        if (hit) return hit;
+    }
+    return nil;
+}
+
 static BOOL DKReadClassNameFast(uintptr_t clsPtr, char *outBuf, size_t outBufLen) {
     if (clsPtr == 0 || (clsPtr & 7)) return NO;
     if (!DKAddressInAnyLoadedImage(clsPtr, 40)) return NO;
@@ -244,6 +313,20 @@ static void DKProcessCategory(uintptr_t catAddr,
             }
         }
     }
+    if (!className.length && fields[2] != 0) {
+        NSString *rev = DKClassFromCategoryMethods(DKStripPAC(fields[2]));
+        if (rev) {
+            className = rev;
+            DKScanLog("REVERSE cat=%@ -> class=%@", catName, rev);
+        }
+    }
+    if (!className.length && fields[3] != 0) {
+        NSString *rev = DKClassFromCategoryMethods(DKStripPAC(fields[3]));
+        if (rev) {
+            className = rev;
+            DKScanLog("REVERSE cls=%@ -> class=%@", catName, rev);
+        }
+    }
     if (!className.length) className = @"_UnknownClass";
 
     NSMutableString *text = [NSMutableString string];
@@ -262,6 +345,7 @@ void DKStaticDumpCategories(NSString *binaryPath,
                                                NSString *categoryName,
                                                NSString *text)) {
     DKScanLog("=== ENTER v5 ===");
+    DKInitSELToClassMap();
     if (!onCategory) return;
     DKInstallCrashHandlers();
     NSLog(@"[DKStatic] scanning categories v4...");
