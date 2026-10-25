@@ -223,6 +223,34 @@ static NSString *DKClassFromCategoryMethods(uintptr_t listAddr) {
     return nil;
 }
 
+
+static NSString *DKDecodeTypeEncoding(const char *type) {
+    if (!type || !*type) return @"id";
+    char c = type[0];
+    switch (c) {
+        case 'v': return @"void";
+        case 'c': return @"char";
+        case 'i': return @"int";
+        case 's': return @"short";
+        case 'l': return @"long";
+        case 'q': return @"NSInteger";
+        case 'C': return @"unsigned char";
+        case 'I': return @"unsigned int";
+        case 'S': return @"unsigned short";
+        case 'L': return @"unsigned long";
+        case 'Q': return @"NSUInteger";
+        case 'f': return @"float";
+        case 'd': return @"CGFloat";
+        case 'B': return @"BOOL";
+        case '*': return @"char *";
+        case ':': return @"SEL";
+        case '@': return @"id";
+        case '^': return @"void *";
+        case '{': return @"struct";
+        default: return @"id";
+    }
+}
+
 static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
     if (listAddr == 0) return nil;
     if (!DKAddressInAnyLoadedImage(listAddr, 8)) return nil;
@@ -232,49 +260,85 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
     uint32_t e = eFlags & 0xFFFFFFFC;
     BOOL rel = (eFlags & 0x80000000) != 0 || e == 12;
     if (e != 24 && e != 12) return nil;
+    
     NSMutableString *out = [NSMutableString string];
     for (uint32_t i = 0; i < count; i++) {
         uintptr_t entry = listAddr + 8 + (uintptr_t)i * e;
         if (!DKAddressInAnyLoadedImage(entry, 8)) break;
-        const char *name = NULL;
+        
+        const char *selName = NULL;
+        const char *types = NULL;
+        
         if (rel) {
             int32_t r = *(int32_t *)entry;
             uintptr_t na = entry + (intptr_t)r;
-            if (DKAddressInAnyLoadedImage(na, 1)) name = (const char *)na;
+            if (DKAddressInAnyLoadedImage(na, 1)) selName = (const char *)na;
+            // 相对偏移格式(small) 没有简单的绝对 types 指针，暂不解析
         } else {
             uintptr_t np = *(uintptr_t *)entry;
             np &= 0x0000FFFFFFFFFFFF;
-            if (DKAddressInAnyLoadedImage(np, 1)) name = (const char *)np;
+            if (DKAddressInAnyLoadedImage(np, 1)) selName = (const char *)np;
+            
+            // 获取 types 指针 (method_t 的第二个字段)
+            uintptr_t tp = *(uintptr_t *)(entry + 8);
+            tp &= 0x0000FFFFFFFFFFFF;
+            if (DKAddressInAnyLoadedImage(tp, 1)) types = (const char *)tp;
         }
-        if (!name || !DKIsPrintableString(name, 256)) continue;
-        // Class-dump style: no return type / param type from method_t
-        // Format as: - (void)selector:(id)a0 selector2:(id)a1;
-        const char *p = name;
+        if (!selName || !DKIsPrintableString(selName, 256)) continue;
+        
+        NSString *retType = @"void";
+        if (types) retType = DKDecodeTypeEncoding(types);
+        
         NSMutableString *sig = [NSMutableString string];
-        [sig appendFormat:@"%s (void)", sigil];
+        [sig appendFormat:@"%s (%@)", sigil, retType];
+        
         int argIdx = 2;
-        const char *seg = p;
+        const char *seg = selName;
+        const char *typePtr = types;
+        
+        // 跳过返回值、self(@)、_cmd(:)
+        if (typePtr) {
+            while (*typePtr && *typePtr != '@' && *typePtr != ':') typePtr++;
+            if (*typePtr == '@') typePtr++;
+            if (*typePtr == ':') typePtr++;
+        }
+        
         while (*seg) {
             const char *colon = strchr(seg, ':');
             if (!colon) {
                 [sig appendString:[NSString stringWithUTF8String:seg]];
                 break;
             }
-            // 段名 + 参数
             NSUInteger len = (NSUInteger)(colon - seg);
             NSString *part = [[NSString alloc] initWithBytes:seg length:len encoding:NSUTF8StringEncoding];
+            
+            NSString *argType = @"id";
+            if (typePtr) {
+                // 跳过偏移数字
+                while (*typePtr && (*typePtr == 'r' || *typePtr == 'n' || *typePtr == 'o' || *typePtr == 'O' || *typePtr == 'R' || *typePtr == 'V')) typePtr++;
+                while (*typePtr >= '0' && *typePtr <= '9') typePtr++;
+                
+                if (*typePtr) {
+                    argType = DKDecodeTypeEncoding(typePtr);
+                    // 简单向后推移
+                    while (*typePtr && *typePtr != '@' && *typePtr != ':' && !(*typePtr >= '0' && *typePtr <= '9')) typePtr++;
+                }
+            }
+            
             if (part.length == 0) {
-                [sig appendFormat:@":(id)arg%d", argIdx++];
+                [sig appendFormat:@":(%@)arg%d", argType, argIdx++];
             } else if (argIdx == 2) {
-                [sig appendFormat:@"%@:(id)arg%d", part, argIdx++];
+                [sig appendFormat:@"%@:(%@)arg%d", part, argType, argIdx++];
             } else {
-                [sig appendFormat:@" %@:(id)arg%d", part, argIdx++];
+                [sig appendFormat:@" %@:(%@)arg%d", part, argType, argIdx++];
             }
             seg = colon + 1;
         }
-        [out appendFormat:@"%@;\n", sig];
+        [out appendFormat:@"%@;
+", sig];
     }
     return out.length ? out : nil;
+}
 }
 
 static NSString *DKLookupClassBySEL(NSString *selName) {
