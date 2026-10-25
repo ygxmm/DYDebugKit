@@ -243,8 +243,7 @@ static void DKWritePageFiles(DKExportSink *sink,
         NSArray *swiftArr = DKGetCapturedPageSwiftClasses();
     if (swiftArr.count > 0) {
         swiftArr = [swiftArr sortedArrayUsingSelector:@selector(compare:)];
-        NSString *swiftStr = [swiftArr componentsJoinedByString:@"
-"];
+        NSString *swiftStr = [swiftArr componentsJoinedByString:@"\n"];
         DKWriteString(sink, @"page/swift_classes.txt", swiftStr, NO);
     } else {
         DKWriteString(sink, @"page/swift_classes.txt", @"(当前页面未抓取到 Swift 类)", NO);
