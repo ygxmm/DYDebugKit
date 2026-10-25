@@ -15,6 +15,7 @@
 #endif
 
 #import "DKDebugExport.h"
+#import "DKDebugCapture.h"
 #import <mach-o/dyld.h>
 #import "DKStaticClassDump.h"
 #import "DKAudioProbe.h"

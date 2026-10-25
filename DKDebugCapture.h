@@ -59,3 +59,5 @@ DKDebugExportContext *DKDebugCaptureMetadataContext(UIWindow *targetWindow);
 #endif
 
 #endif /* DKDebugCapture_h */
+
+NSArray<NSString *> *DKGetCapturedPageSwiftClasses(void);
