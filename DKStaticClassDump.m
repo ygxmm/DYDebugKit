@@ -265,8 +265,10 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
             NSString *part = [[NSString alloc] initWithBytes:seg length:len encoding:NSUTF8StringEncoding];
             if (part.length == 0) {
                 [sig appendFormat:@":(id)arg%d", argIdx++];
-            } else {
+            } else if (argIdx == 2) {
                 [sig appendFormat:@"%@:(id)arg%d", part, argIdx++];
+            } else {
+                [sig appendFormat:@" %@:(id)arg%d", part, argIdx++];
             }
             seg = colon + 1;
         }
