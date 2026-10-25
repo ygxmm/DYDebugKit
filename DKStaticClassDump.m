@@ -247,7 +247,30 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
             if (DKAddressInAnyLoadedImage(np, 1)) name = (const char *)np;
         }
         if (!name || !DKIsPrintableString(name, 256)) continue;
-        [out appendFormat:@"%s (%s);\n", sigil, name];
+        // Class-dump style: no return type / param type from method_t
+        // Format as: - (void)selector:(id)a0 selector2:(id)a1;
+        const char *p = name;
+        NSMutableString *sig = [NSMutableString string];
+        [sig appendFormat:@"%s (void)", sigil];
+        int argIdx = 2;
+        const char *seg = p;
+        while (*seg) {
+            const char *colon = strchr(seg, ':');
+            if (!colon) {
+                [sig appendString:[NSString stringWithUTF8String:seg]];
+                break;
+            }
+            // 段名 + 参数
+            NSUInteger len = (NSUInteger)(colon - seg);
+            NSString *part = [[NSString alloc] initWithBytes:seg length:len encoding:NSUTF8StringEncoding];
+            if (part.length == 0) {
+                [sig appendFormat:@":(id)arg%d", argIdx++];
+            } else {
+                [sig appendFormat:@"%@:(id)arg%d", part, argIdx++];
+            }
+            seg = colon + 1;
+        }
+        [out appendFormat:@"%@;\n", sig];
     }
     return out.length ? out : nil;
 }
