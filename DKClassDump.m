@@ -173,6 +173,76 @@ static NSString *DKTypeFromEncoding(const char *encoding) {
 
 #pragma mark - 属性 / 方法行
 
+static NSString *DKProtocolMethodLine(SEL sel, const char *types, BOOL isClassMethod) {
+    if (!sel) return nil;
+    const char *name = sel_getName(sel);
+    if (!name) return nil;
+    NSString *nameStr = [NSString stringWithUTF8String:name];
+    if (!nameStr.length) return nil;
+
+    NSString *retType = @"void";
+    NSMutableArray<NSString *> *argTypes = [NSMutableArray array];
+
+    if (types && *types) {
+        const char *p = types;
+        size_t retLen = 0;
+        retType = DKTypeFromEncoding(p);
+        // 跳过返回值类型
+        while (*p == 'r' || *p == 'n' || *p == 'N' || *p == 'o' || *p == 'O' || *p == 'R' || *p == 'V') p++;
+        char rc = *p;
+        if (rc == '{') { int d = 1; p++; while (*p && d > 0) { if (*p == '{') d++; else if (*p == '}') d--; p++; } }
+        else if (rc == '^') { p++; if (*p) p++; }
+        else if (rc == '[') { int d = 1; p++; while (*p && d > 0) { if (*p == '[') d++; else if (*p == ']') d--; p++; } }
+        else if (rc == '@') { if (p[1] == '"') { p += 2; while (*p && *p != '"') p++; if (*p == '"') p++; } else p++; }
+        else if (*p) p++;
+        // 跳过返回值偏移数字
+        while (*p >= '0' && *p <= '9') p++;
+        // 跳过 self(@) 类型 + 偏移
+        if (*p == '@') p++;
+        while (*p >= '0' && *p <= '9') p++;
+        // 跳过 _cmd(:) 类型 + 偏移
+        if (*p == ':') p++;
+        while (*p >= '0' && *p <= '9') p++;
+
+        // 逐个参数解析
+        while (*p) {
+            while (*p == 'r' || *p == 'n' || *p == 'N' || *p == 'o' || *p == 'O' || *p == 'R' || *p == 'V') p++;
+            if (!*p) break;
+            NSString *t = DKTypeFromEncoding(p);
+            [argTypes addObject:t ?: @"id"];
+            char c2 = *p;
+            if (c2 == '{') { int d = 1; p++; while (*p && d > 0) { if (*p == '{') d++; else if (*p == '}') d--; p++; } }
+            else if (c2 == '^') { p++; if (*p) { if (*p == '{') { int d=1; p++; while (*p && d>0) { if (*p=='{')d++; else if (*p=='}')d--; p++; } } else p++; } }
+            else if (c2 == '[') { int d = 1; p++; while (*p && d > 0) { if (*p == '[') d++; else if (*p == ']') d--; p++; } }
+            else if (c2 == '@') { if (p[1] == '"') { p += 2; while (*p && *p != '"') p++; if (*p == '"') p++; } else if (p[1] == '?') p += 2; else p++; }
+            else if (*p) p++;
+            while (*p >= '0' && *p <= '9') p++;
+        }
+    }
+
+    NSArray<NSString *> *parts = [nameStr componentsSeparatedByString:@":"];
+    NSInteger argCount = 0;
+    if ([nameStr containsString:@":"]) argCount = (NSInteger)parts.count - 1;
+
+    NSMutableString *line = [NSMutableString string];
+    [line appendFormat:@"%c (%@)", isClassMethod ? '+' : '-', retType];
+    if (argCount <= 0) {
+        [line appendFormat:@"%@;\n", nameStr];
+        return line;
+    }
+    for (NSInteger k = 0; k < argCount; k++) {
+        NSString *seg = (k < (NSInteger)parts.count) ? parts[k] : @"";
+        NSString *t = (k < (NSInteger)argTypes.count) ? argTypes[k] : @"id";
+        if (k == 0) {
+            [line appendFormat:@"%@:(%@)arg%ld", seg, t, (long)(k + 2)];
+        } else {
+            [line appendFormat:@" %@:(%@)arg%ld", seg, t, (long)(k + 2)];
+        }
+    }
+    [line appendString:@";\n"];
+    return line;
+}
+
 static NSString *DKPropertyLine(objc_property_t property) {
     const char *n = property_getName(property);
     if (!n) return nil;
@@ -278,10 +348,12 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
                 if (instCount > 0 || clsCount > 0) {
                     [protocolBlocks appendFormat:@"\n@protocol %s\n", pn];
                     for (unsigned int j = 0; j < instCount; j++) {
-                        [protocolBlocks appendFormat:@"- (%s)%s;\n", "void", sel_getName(instM[j].name)];
+                        NSString *ln = DKProtocolMethodLine(instM[j].name, instM[j].types, NO);
+                        if (ln) [protocolBlocks appendString:ln];
                     }
                     for (unsigned int j = 0; j < clsCount; j++) {
-                        [protocolBlocks appendFormat:@"+ (%s)%s;\n", "void", sel_getName(clsM[j].name)];
+                        NSString *ln = DKProtocolMethodLine(clsM[j].name, clsM[j].types, YES);
+                        if (ln) [protocolBlocks appendString:ln];
                     }
                     [protocolBlocks appendString:@"@end\n\n"];
                 }
