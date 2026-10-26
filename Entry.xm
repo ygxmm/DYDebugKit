@@ -25,6 +25,8 @@ static BOOL DYIsCurrentAppEnabled(void) {
 
 @interface DYDebugOverlayController : UIViewController
 @property(nonatomic, strong) UIButton *button;
+@property(nonatomic, assign) CGPoint buttonCenter;
+@property(nonatomic, assign) BOOL hasCustomPosition;
 @property(nonatomic, assign) BOOL exporting;
 @end
 
@@ -66,15 +68,83 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
           forControlEvents:UIControlEventTouchUpInside];
 
     [self.view addSubview:self.button];
+
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc]
+        initWithTarget:self action:@selector(handleButtonPan:)];
+    pan.cancelsTouchesInView = NO;
+    pan.delaysTouchesBegan = NO;
+    [self.button addGestureRecognizer:pan];
+
+    NSDictionary *saved = [[NSUserDefaults standardUserDefaults]
+        objectForKey:@"DYOverlayButtonCenter"];
+    if (saved && saved[@"x"] && saved[@"y"]) {
+        self.buttonCenter = CGPointMake([saved[@"x"] doubleValue],
+                                        [saved[@"y"] doubleValue]);
+        self.hasCustomPosition = YES;
+    }
 }
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
 
-    self.button.center = CGPointMake(
-        self.view.bounds.size.width - 38.0,
-        self.view.safeAreaInsets.top + 38.0
-    );
+    CGFloat halfW = self.button.bounds.size.width * 0.5;
+    CGFloat halfH = self.button.bounds.size.height * 0.5;
+    CGFloat margin = 8.0;
+    CGFloat safeTop = self.view.safeAreaInsets.top;
+    CGFloat safeBottom = self.view.safeAreaInsets.bottom;
+
+    CGPoint c;
+    if (self.hasCustomPosition) {
+        c = self.buttonCenter;
+    } else {
+        c = CGPointMake(
+            self.view.bounds.size.width - 38.0,
+            self.view.safeAreaInsets.top + 38.0
+        );
+    }
+    c.x = MAX(halfW + margin,
+              MIN(self.view.bounds.size.width - halfW - margin, c.x));
+    c.y = MAX(safeTop + halfH + margin,
+              MIN(self.view.bounds.size.height - safeBottom - halfH - margin, c.y));
+    self.buttonCenter = c;
+    self.button.center = c;
+}
+
+#pragma mark - 拖动浮窗
+
+- (void)handleButtonPan:(UIPanGestureRecognizer *)g {
+    UIView *v = self.button;
+    UIGestureRecognizerState st = g.state;
+
+    if (st == UIGestureRecognizerStateBegan ||
+        st == UIGestureRecognizerStateChanged) {
+        CGPoint t = [g translationInView:self.view];
+        v.center = CGPointMake(v.center.x + t.x, v.center.y + t.y);
+        [g setTranslation:CGPointZero inView:self.view];
+        self.buttonCenter = v.center;
+        self.hasCustomPosition = YES;
+    } else if (st == UIGestureRecognizerStateEnded ||
+               st == UIGestureRecognizerStateCancelled) {
+        CGFloat halfW = v.bounds.size.width * 0.5;
+        CGFloat halfH = v.bounds.size.height * 0.5;
+        CGFloat margin = 8.0;
+        CGFloat safeTop = self.view.safeAreaInsets.top;
+        CGFloat safeBottom = self.view.safeAreaInsets.bottom;
+        CGPoint c = v.center;
+        if (c.x < self.view.bounds.size.width * 0.5) {
+            c.x = halfW + margin;
+        } else {
+            c.x = self.view.bounds.size.width - halfW - margin;
+        }
+        c.y = MAX(safeTop + halfH + margin,
+                  MIN(self.view.bounds.size.height - safeBottom - halfH - margin, c.y));
+        [UIView animateWithDuration:0.2 animations:^{ v.center = c; }];
+        self.buttonCenter = c;
+        [[NSUserDefaults standardUserDefaults]
+            setObject:@{@"x": @(c.x), @"y": @(c.y)}
+               forKey:@"DYOverlayButtonCenter"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
 }
 
 #pragma mark - 弹出功能菜单
