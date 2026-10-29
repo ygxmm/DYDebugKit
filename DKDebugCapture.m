@@ -608,7 +608,7 @@ static void DKCollectInteractivesFromView(UIView *v, NSMutableString *out, NSUIn
     }
     if (isControl || gestures.count > 0) {
         NSMutableString *indent = [NSMutableString string];
-        for (NSUInteger i = 0; i < depth; i++) [indent appendString:@"  "];
+        for (NSUInteger i = 0; i < MIN(depth, 8); i++) [indent appendString:@"  "]; // DK_FEATURE_INDENT
         NSString *cls = NSStringFromClass([v class]);
         NSString *frame = NSStringFromCGRect(v.frame);
         NSString *enabled = isControl ? (((UIControl *)v).enabled ? @"YES" : @"NO") : @"-";
@@ -691,7 +691,7 @@ static void DKCollectTextsFromView(UIView *v, NSMutableString *out, NSUInteger d
     }
     if (text.length > 0) {
         NSMutableString *indent = [NSMutableString string];
-        for (NSUInteger i = 0; i < depth; i++) [indent appendString:@"  "];
+        for (NSUInteger i = 0; i < MIN(depth, 8); i++) [indent appendString:@"  "]; // DK_FEATURE_INDENT
         NSString *safe = [text stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
         if (safe.length > 200) safe = [[safe substringToIndex:200] stringByAppendingString:@"..."];
         [out appendFormat:@"%@%@ frame=%@ text=%@\n",
@@ -717,7 +717,7 @@ static void DKCollectImagesFromView(UIView *v, NSMutableString *out, NSUInteger 
         UIImageView *iv = (UIImageView *)v;
         UIImage *img = iv.image;
         NSMutableString *indent = [NSMutableString string];
-        for (NSUInteger i = 0; i < depth && i < 12; i++) [indent appendString:@"  "];
+        for (NSUInteger i = 0; i < MIN(depth, 8); i++) [indent appendString:@"  "]; // DK_FEATURE_INDENT
         NSString *size = img ? NSStringFromCGSize(img.size) : @"null";
         NSUInteger frames = img.images.count;
         CGFloat scale = img ? img.scale : 0;
