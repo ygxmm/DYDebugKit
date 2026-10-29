@@ -481,6 +481,10 @@ NSArray<NSString *> *DKGetCapturedPageSwiftClasses(void) {
     return gPageSwiftClasses ? [gPageSwiftClasses allObjects] : @[];
 }
 
+// DK_FORWARD_DECL: 采集函数 forward declaration（避免 implicit declaration）
+static NSString *DKCaptureInteractivesText(UIWindow *window);
+static NSString *DKCaptureTextsText(UIWindow *window);
+
 DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView) {
     DKDebugExportContext *context = [DKDebugExportContext new];
     NSArray<UIWindow *> *windows = DKDebugActiveWindows();
