@@ -572,9 +572,41 @@ static void DKCollectInteractivesFromView(UIView *v, NSMutableString *out, NSUIn
         NSString *label = v.accessibilityLabel ?: @"";
         NSString *title = @"";
         if ([v isKindOfClass:[UIButton class]]) title = ((UIButton *)v).currentTitle ?: @"";
-        [out appendFormat:@"%@%@ frame=%@ hidden=%d enabled=%@ id=%@ label=%@ title=%@ gestures=%@\n",
+        // DK_FEATURE_TARGETS: 解析 UIControl target-action
+        NSString *targets = @"-";
+        if (isControl) {
+            NSMutableArray<NSString *> *acts = [NSMutableArray array];
+            UIControl *ctrl = (UIControl *)v;
+            NSArray<NSNumber *> *events = @[
+                @(UIControlEventTouchUpInside),
+                @(UIControlEventTouchDown),
+                @(UIControlEventValueChanged),
+                @(UIControlEventEditingDidEnd),
+                @(UIControlEventEditingChanged),
+                @(UIControlEventTouchUpOutside),
+                @(UIControlEventTouchCancel),
+                @(UIControlEventPrimaryActionTriggered),
+            ];
+            for (id tgt in ctrl.allTargets) {
+                if (!tgt || tgt == [NSNull null]) continue;
+                NSString *tc = NSStringFromClass([tgt class]);
+                for (NSNumber *ev in events) {
+                    NSArray<NSString *> *sels = [ctrl actionsForTarget:tgt
+                                                       forControlEvent:(UIControlEvents)ev.unsignedIntegerValue];
+                    for (NSString *sel in sels) {
+                        NSString *item = [NSString stringWithFormat:@"%@:%@", tc, sel];
+                        if (![acts containsObject:item]) [acts addObject:item];
+                        if (acts.count >= 5) break;
+                    }
+                    if (acts.count >= 5) break;
+                }
+                if (acts.count >= 5) break;
+            }
+            if (acts.count > 0) targets = [acts componentsJoinedByString:@","];
+        }
+        [out appendFormat:@"%@%@ frame=%@ hidden=%d enabled=%@ id=%@ label=%@ title=%@ targets=%@ gestures=%@\n",
          indent, cls, frame, (int)v.hidden, enabled, ident, label, title,
-         gestures.count ? [gestures componentsJoinedByString:@","] : @"-"];
+         targets, gestures.count ? [gestures componentsJoinedByString:@","] : @"-"];
     }
     for (UIView *sub in v.subviews) DKCollectInteractivesFromView(sub, out, depth + 1);
 }
