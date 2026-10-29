@@ -27,6 +27,7 @@
 @property (nonatomic, strong) NSArray<NSString *> *pageClassNames;
 @property (nonatomic, copy) NSString *interactivesText; // DK_FEATURE_INTERACTIVES
 @property (nonatomic, copy) NSString *textsText;        // DK_FEATURE_TEXTS
+@property (nonatomic, copy) NSString *imagesText;        // DK_FEATURE_IMAGES
 /// 主线程生成的探针文本（probe/tabbar.txt）；后台导出只落盘，不再读 UIKit。
 @property (nonatomic, copy) NSString *probeText;
 /// 音频专项模式的五秒采样产物；普通页面/全类导出时为 nil。

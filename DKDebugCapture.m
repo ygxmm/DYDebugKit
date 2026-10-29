@@ -484,6 +484,7 @@ NSArray<NSString *> *DKGetCapturedPageSwiftClasses(void) {
 // DK_FORWARD_DECL: 采集函数 forward declaration（避免 implicit declaration）
 static NSString *DKCaptureInteractivesText(UIWindow *window);
 static NSString *DKCaptureTextsText(UIWindow *window);
+static NSString *DKCaptureImagesText(UIWindow *window); // DK_FEATURE_IMAGES
 
 DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView) {
     DKDebugExportContext *context = [DKDebugExportContext new];
@@ -543,6 +544,7 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
     context.pageClassNames = pageClasses.allObjects;
     context.interactivesText = DKCaptureInteractivesText(targetWindow); // DK_FEATURE_INTERACTIVES
     context.textsText = DKCaptureTextsText(targetWindow);              // DK_FEATURE_TEXTS
+    context.imagesText = DKCaptureImagesText(targetWindow);                // DK_FEATURE_IMAGES
     context.sourceView = targetWindow;
     context.presenter = DKDebugTopPresenter(targetWindow);
     return context;
@@ -580,6 +582,7 @@ static NSString *DKGestureTargetsString(UIGestureRecognizer *g) {
         NSString *targetCls = NSStringFromClass([target class]);
         NSString *sel = NSStringFromSelector(action);
         if (targetCls.length == 0 || sel.length == 0) continue;
+        if ([sel containsString:@"awe_UITracker"]) continue; // DK_FEATURE_IMAGES: 过滤埋点手势
 
         NSString *item = [NSString stringWithFormat:@"%@:%@", targetCls, sel];
         if (![out containsObject:item]) [out addObject:item];
@@ -685,5 +688,35 @@ static NSString *DKCaptureTextsText(UIWindow *window) {
     [out appendString:@"# Texts (UILabel / UITextField / UITextView / UIButton title)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
     DKCollectTextsFromView(window, out, 0);
+    return out;
+}
+
+// ============================================================
+// DK_FEATURE_IMAGES: 图片资源清单
+// ============================================================
+static void DKCollectImagesFromView(UIView *v, NSMutableString *out, NSUInteger depth) {
+    if (!v) return;
+    if ([v isKindOfClass:[UIImageView class]]) {
+        UIImageView *iv = (UIImageView *)v;
+        UIImage *img = iv.image;
+        NSMutableString *indent = [NSMutableString string];
+        for (NSUInteger i = 0; i < depth && i < 12; i++) [indent appendString:@"  "];
+        NSString *size = img ? NSStringFromCGSize(img.size) : @"null";
+        NSUInteger frames = img.images.count;
+        CGFloat scale = img ? img.scale : 0;
+        NSString *ident = iv.accessibilityIdentifier ?: @"";
+        NSString *label = iv.accessibilityLabel ?: @"";
+        [out appendFormat:@"%@%@ frame=%@ hidden=%d image=%@ frames=%lu scale=%.1f id=%@ label=%@\n",
+         indent, NSStringFromClass([v class]), NSStringFromCGRect(v.frame),
+         (int)v.hidden, size, (unsigned long)frames, scale, ident, label];
+    }
+    for (UIView *sub in v.subviews) DKCollectImagesFromView(sub, out, depth + 1);
+}
+
+static NSString *DKCaptureImagesText(UIWindow *window) {
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"# Images (UIImageView)\n"];
+    if (!window) { [out appendString:@"(no window)\n"]; return out; }
+    DKCollectImagesFromView(window, out, 0);
     return out;
 }
