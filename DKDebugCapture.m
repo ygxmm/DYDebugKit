@@ -88,9 +88,26 @@ static NSDictionary *DKTransform3DDict(CATransform3D t) {
 
 #pragma mark - 窗口与控制器工具
 
+// DK_WINDOW_FILTER: 排除 DYKiller 自身窗口（类名/控制器/层级三重判断）
 static BOOL DKIsDebugWindow(UIWindow *window) {
+    if (!window) return YES;
     NSString *cls = DKClassName(window);
-    return [cls hasPrefix:@"DKDebug"] || [cls hasPrefix:@"FLEX"];
+    NSString *rvc = DKClassName(window.rootViewController);
+
+    NSArray<NSString *> *prefixes =
+        @[@"DKDebug", @"DYDebug", @"DYKiller", @"FLEX",
+          @"DKOverlay", @"DYOverlay"];
+    for (NSString *p in prefixes) {
+        if ([cls hasPrefix:p]) return YES;
+        if ([rvc hasPrefix:p]) return YES;
+    }
+
+    // DYKiller 浮层 windowLevel = UIWindowLevelAlert + 100
+    CGFloat lv = window.windowLevel;
+    if (lv >= UIWindowLevelAlert + 99.5 && lv <= UIWindowLevelAlert + 100.5) {
+        return YES;
+    }
+    return NO;
 }
 
 NSArray<UIWindow *> *DKDebugActiveWindows(void) {
