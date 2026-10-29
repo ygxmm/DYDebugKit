@@ -537,7 +537,74 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
     context.screenshotPNG = DKScreenshotPNG(targetWindow);
     context.summary = summary;
     context.pageClassNames = pageClasses.allObjects;
+    context.interactivesText = DKCaptureInteractivesText(targetWindow); // DK_FEATURE_INTERACTIVES
+    context.textsText = DKCaptureTextsText(targetWindow);              // DK_FEATURE_TEXTS
     context.sourceView = targetWindow;
     context.presenter = DKDebugTopPresenter(targetWindow);
     return context;
+}
+
+// ============================================================
+// DK_FEATURE_INTERACTIVES / DK_FEATURE_TEXTS
+// 通用：不写死任何 App 类名，只读 UIKit 公开 API
+// ============================================================
+static void DKCollectInteractivesFromView(UIView *v, NSMutableString *out, NSUInteger depth) {
+    if (!v) return;
+    BOOL isControl = [v isKindOfClass:[UIControl class]];
+    NSMutableArray<NSString *> *gestures = [NSMutableArray array];
+    for (UIGestureRecognizer *g in v.gestureRecognizers) {
+        NSString *gc = NSStringFromClass([g class]);
+        if ([gc containsString:@"Tap"] || [gc containsString:@"Press"] || [gc containsString:@"Click"]) {
+            [gestures addObject:gc];
+        }
+    }
+    if (isControl || gestures.count > 0) {
+        NSMutableString *indent = [NSMutableString string];
+        for (NSUInteger i = 0; i < depth; i++) [indent appendString:@"  "];
+        NSString *cls = NSStringFromClass([v class]);
+        NSString *frame = NSStringFromCGRect(v.frame);
+        NSString *enabled = isControl ? (((UIControl *)v).enabled ? @"YES" : @"NO") : @"-";
+        NSString *ident = v.accessibilityIdentifier ?: @"";
+        NSString *label = v.accessibilityLabel ?: @"";
+        NSString *title = @"";
+        if ([v isKindOfClass:[UIButton class]]) title = ((UIButton *)v).currentTitle ?: @"";
+        [out appendFormat:@"%@%@ frame=%@ hidden=%d enabled=%@ id=%@ label=%@ title=%@ gestures=%@\n",
+         indent, cls, frame, (int)v.hidden, enabled, ident, label, title,
+         gestures.count ? [gestures componentsJoinedByString:@","] : @"-"];
+    }
+    for (UIView *sub in v.subviews) DKCollectInteractivesFromView(sub, out, depth + 1);
+}
+
+static NSString *DKCaptureInteractivesText(UIWindow *window) {
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"# Interactives (UIControl / gestures)\n"];
+    if (!window) { [out appendString:@"(no window)\n"]; return out; }
+    DKCollectInteractivesFromView(window, out, 0);
+    return out;
+}
+
+static void DKCollectTextsFromView(UIView *v, NSMutableString *out, NSUInteger depth) {
+    if (!v) return;
+    NSString *text = nil;
+    if ([v isKindOfClass:[UILabel class]]) text = ((UILabel *)v).text;
+    else if ([v isKindOfClass:[UITextField class]]) text = ((UITextField *)v).text;
+    else if ([v isKindOfClass:[UITextView class]]) text = ((UITextView *)v).text;
+    else if ([v isKindOfClass:[UIButton class]]) text = ((UIButton *)v).currentTitle;
+    if (text.length > 0) {
+        NSMutableString *indent = [NSMutableString string];
+        for (NSUInteger i = 0; i < depth; i++) [indent appendString:@"  "];
+        NSString *safe = [text stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+        if (safe.length > 200) safe = [[safe substringToIndex:200] stringByAppendingString:@"..."];
+        [out appendFormat:@"%@%@ frame=%@ text=%@\n",
+         indent, NSStringFromClass([v class]), NSStringFromCGRect(v.frame), safe];
+    }
+    for (UIView *sub in v.subviews) DKCollectTextsFromView(sub, out, depth + 1);
+}
+
+static NSString *DKCaptureTextsText(UIWindow *window) {
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"# Texts (UILabel / UITextField / UITextView / UIButton title)\n"];
+    if (!window) { [out appendString:@"(no window)\n"]; return out; }
+    DKCollectTextsFromView(window, out, 0);
+    return out;
 }

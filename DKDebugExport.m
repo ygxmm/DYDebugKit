@@ -363,6 +363,8 @@ DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
     DKWriteJSON(sink, @"page/selected-view.json", context.selectedViewJSON ?: @{}, NO);
     DKWriteString(sink, @"page/view-controllers.txt", context.viewControllersText, NO);
     DKWriteJSON(sink, @"page/layers.json", context.layersJSON ?: @[], NO);
+    DKWriteString(sink, @"page/interactives.txt", context.interactivesText ?: @"(empty)\n", NO); // DK_FEATURE_EXPORT
+    DKWriteString(sink, @"page/texts.txt", context.textsText ?: @"(empty)\n", NO);
     if (progress) progress(@"导出本页类头文件...");
     DKWritePageClasses(sink, context.pageClassNames ?: @[]);
 }
