@@ -242,7 +242,6 @@ static NSString *DKProtocolMethodLine(SEL sel, const char *types, BOOL isClassMe
 
     if (types && *types) {
         const char *p = types;
-        size_t retLen = 0;
         retType = DKTypeFromEncoding(p);
         // 跳过返回值类型
         while (*p == 'r' || *p == 'n' || *p == 'N' || *p == 'o' || *p == 'O' || *p == 'R' || *p == 'V') p++;
@@ -358,7 +357,6 @@ static NSString *DKMethodLine(Method m, BOOL isClassMethod) {
     NSString *name = NSStringFromSelector(sel);
     if (name.length == 0) return nil;
 
-    unsigned int argCount = method_getNumberOfArguments(m);
     if (![name containsString:@":"]) {
         return [NSString stringWithFormat:@"%c (%@)%@;", isClassMethod ? '+' : '-', retType, name];
     }
@@ -572,3 +570,4 @@ NSString *DKClassDumpHeaderForClass(Class cls) {
     if (img) imageName = [DKCString(img) lastPathComponent] ?: @"Unknown";
     return DKHeaderForClass(cls, imageName);
 }
+// DK_WARNING_CLEANUP
