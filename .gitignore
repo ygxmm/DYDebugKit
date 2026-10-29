@@ -5,3 +5,6 @@ darwinscope/
 *.bak.*
 packages/
 .theos/
+*.bak.*
+packages/
+.theos/
