@@ -99,6 +99,10 @@ BOOL DKClassNameIsRuntimeGenerated(NSString *name) {
 
 #pragma mark - 类型编码 → 可读类型
 
+static NSString *DKTypeFromEncoding(const char *encoding);
+static NSString *DKParseBlockSignature(const char *s); // DK_BLOCK_SIGNATURE
+static const char *DKSkipBlockSignature(const char *p);
+
 static NSString *DKTypeFromEncoding(const char *encoding) {
     if (!encoding || !*encoding) return @"id";
     const char *s = encoding;
@@ -125,6 +129,10 @@ static NSString *DKTypeFromEncoding(const char *encoding) {
         case '#': return @"Class";
         case '?': return @"void *";
         case '@':
+            if (s[1] == '?') {
+                if (s[2] == '<') return DKParseBlockSignature(s + 2);
+                return @"id /* block */";
+            }
             if (s[1] == '"') {
                 const char *st = s + 2;
                 const char *en = strchr(st, '"');
@@ -132,7 +140,10 @@ static NSString *DKTypeFromEncoding(const char *encoding) {
                     NSString *nm = [[NSString alloc] initWithBytes:st
                         length:(NSUInteger)(en - st)
                         encoding:NSUTF8StringEncoding];
-                    if (nm.length > 0 && [nm characterAtIndex:0] != '<') {
+                    if (nm.length > 0) {
+                        if ([nm characterAtIndex:0] == '<') {
+                            return [NSString stringWithFormat:@"id%@", nm];
+                        }
                         return [NSString stringWithFormat:@"%@ *", nm];
                     }
                 }
@@ -169,6 +180,52 @@ static NSString *DKTypeFromEncoding(const char *encoding) {
         case 'b': return @"unsigned int";
         default: return @"id";
     }
+}
+
+// DK_BLOCK_SIGNATURE: 跳过 block 签名 <...>，返回 '>' 之后
+static const char *DKSkipBlockSignature(const char *p) {
+    if (!p || *p != '<') return p;
+    int depth = 1; p++;
+    while (*p && depth > 0) { if (*p == '<') depth++; else if (*p == '>') depth--; p++; }
+    return p;
+}
+
+// DK_BLOCK_SIGNATURE: 解析 @?<...>，输出 "ret (^)(args)"
+static NSString *DKParseBlockSignature(const char *s) {
+    if (!s || *s != '<') return @"id /* block */";
+    const char *p = s + 1;
+    while (*p == 'r' || *p == 'n' || *p == 'N' || *p == 'o' || *p == 'O' || *p == 'R' || *p == 'V') p++;
+    const char *retStart = p;
+    if (*p == '{') { int d = 1; p++; while (*p && d > 0) { if (*p == '{') d++; else if (*p == '}') d--; p++; } }
+    else if (*p == '^') { p++; if (*p) p++; }
+    else if (*p == '[') { int d = 1; p++; while (*p && d > 0) { if (*p == '[') d++; else if (*p == ']') d--; p++; } }
+    else if (*p == '@') { if (p[1] == '"') { p += 2; while (*p && *p != '"') p++; if (*p == '"') p++; } else if (p[1] == '?') { p += 2; if (*p == '<') p = DKSkipBlockSignature(p); } else p++; }
+    else if (*p) p++;
+    while (*p >= '0' && *p <= '9') p++;
+    size_t retLen = (size_t)(p - retStart); if (retLen > 255) retLen = 255;
+    char retBuf[256] = {0}; memcpy(retBuf, retStart, retLen);
+    NSString *retType = DKTypeFromEncoding(retBuf);
+    if (*p == '@') p++;
+    while (*p >= '0' && *p <= '9') p++;
+    if (*p == '?') p++;
+    while (*p >= '0' && *p <= '9') p++;
+    NSMutableArray<NSString *> *args = [NSMutableArray array];
+    while (*p && *p != '>') {
+        while (*p == 'r' || *p == 'n' || *p == 'N' || *p == 'o' || *p == 'O' || *p == 'R' || *p == 'V') p++;
+        if (!*p || *p == '>') break;
+        const char *argStart = p;
+        if (*p == '{') { int d = 1; p++; while (*p && d > 0) { if (*p == '{') d++; else if (*p == '}') d--; p++; } }
+        else if (*p == '^') { p++; if (*p) { if (*p == '{') { int d=1; p++; while (*p && d>0) { if (*p=='{')d++; else if (*p=='}')d--; p++; } } else p++; } }
+        else if (*p == '[') { int d = 1; p++; while (*p && d > 0) { if (*p == '[') d++; else if (*p == ']') d--; p++; } }
+        else if (*p == '@') { if (p[1] == '"') { p += 2; while (*p && *p != '"') p++; if (*p == '"') p++; } else if (p[1] == '?') { p += 2; if (*p == '<') p = DKSkipBlockSignature(p); } else p++; }
+        else if (*p) p++;
+        while (*p >= '0' && *p <= '9') p++;
+        size_t aLen = (size_t)(p - argStart); if (aLen > 255) aLen = 255;
+        char argBuf[256] = {0}; memcpy(argBuf, argStart, aLen);
+        [args addObject:DKTypeFromEncoding(argBuf)];
+    }
+    if (args.count == 0) return [NSString stringWithFormat:@"%@ (^)(void)", retType];
+    return [NSString stringWithFormat:@"%@ (^)(%@)", retType, [args componentsJoinedByString:@", "]];
 }
 
 #pragma mark - 属性 / 方法行
@@ -214,7 +271,7 @@ static NSString *DKProtocolMethodLine(SEL sel, const char *types, BOOL isClassMe
             if (c2 == '{') { int d = 1; p++; while (*p && d > 0) { if (*p == '{') d++; else if (*p == '}') d--; p++; } }
             else if (c2 == '^') { p++; if (*p) { if (*p == '{') { int d=1; p++; while (*p && d>0) { if (*p=='{')d++; else if (*p=='}')d--; p++; } } else p++; } }
             else if (c2 == '[') { int d = 1; p++; while (*p && d > 0) { if (*p == '[') d++; else if (*p == ']') d--; p++; } }
-            else if (c2 == '@') { if (p[1] == '"') { p += 2; while (*p && *p != '"') p++; if (*p == '"') p++; } else if (p[1] == '?') p += 2; else p++; }
+            else if (c2 == '@') { if (p[1] == '"') { p += 2; while (*p && *p != '"') p++; if (*p == '"') p++; } else if (p[1] == '?') { p += 2; if (*p == '<') p = DKSkipBlockSignature(p); } else p++; }
             else if (*p) p++;
             while (*p >= '0' && *p <= '9') p++;
         }

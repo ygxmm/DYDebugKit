@@ -456,6 +456,7 @@ DKDebugExportContext *DKDebugCaptureMetadataContext(UIWindow *targetWindow) {
     context.screenshotPNG = DKScreenshotPNG(targetWindow);
     context.sourceView = targetWindow;
     context.presenter = DKDebugTopPresenter(targetWindow);
+    context.probeText = DKCaptureTabbarText(targetWindow); // DK_TABBAR_CAPTURE
     return context;
 }
 
@@ -522,5 +523,62 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
     context.pageClassNames = pageClasses.allObjects;
     context.sourceView = targetWindow;
     context.presenter = DKDebugTopPresenter(targetWindow);
+    context.probeText = DKCaptureTabbarText(targetWindow); // DK_TABBAR_CAPTURE
     return context;
+}
+
+// ============================================================
+// DK_TABBAR_CAPTURE: tabbar 真采集
+// ============================================================
+static void DKCollectTabbarViews(UIView *root, NSMutableArray<UIView *> *out) {
+    if (!root) return;
+    Class cls = [root class];
+    NSString *name = NSStringFromClass(cls);
+    if ([name containsString:@"TabBar"] || [name containsString:@"Tabbar"] ||
+        [name containsString:@"Tabbar"] || [root isKindOfClass:[UITabBar class]]) {
+        [out addObject:root];
+    }
+    for (UIView *sub in root.subviews) DKCollectTabbarViews(sub, out);
+}
+
+static NSString *DKCaptureTabbarText(UIWindow *targetWindow) {
+    NSMutableString *text = [NSMutableString string];
+    [text appendString:@"# TabBar probe\n"];
+    [text appendFormat:@"generatedAt: %@\n", [NSDate date]];
+    [text appendFormat:@"targetWindow: %@ level=%.0f hidden=%d frame=%@\n",
+     targetWindow ? NSStringFromClass([targetWindow class]) : @"nil",
+     targetWindow ? targetWindow.windowLevel : 0,
+     targetWindow ? targetWindow.hidden : 0,
+     targetWindow ? NSStringFromCGRect(targetWindow.frame) : @"null"];
+
+    NSArray<UIWindow *> *windows = DKDebugActiveWindows();
+    [text appendFormat:@"activeWindows: %lu\n", (unsigned long)windows.count];
+
+    NSMutableArray<UIView *> *found = [NSMutableArray array];
+    for (UIWindow *w in windows) {
+        [text appendFormat:@"- window %@ level=%.0f frame=%@\n",
+         NSStringFromClass([w class]), w.windowLevel, NSStringFromCGRect(w.frame)];
+        DKCollectTabbarViews(w, found);
+    }
+
+    if (found.count == 0) {
+        [text appendString:@"\nno tabbar-related view found\n"];
+        return text;
+    }
+
+    [text appendFormat:@"\nFound %lu tabbar-related views:\n", (unsigned long)found.count];
+    for (UIView *v in found) {
+        [text appendFormat:@"  %@ frame=%@ hidden=%d alpha=%.2f subviews=%lu\n",
+         NSStringFromClass([v class]), NSStringFromCGRect(v.frame),
+         v.hidden, v.alpha, (unsigned long)v.subviews.count];
+        // 输出子视图概要
+        NSUInteger i = 0;
+        for (UIView *sub in v.subviews) {
+            if (i++ >= 8) { [text appendString:@"    ...\n"]; break; }
+            [text appendFormat:@"    [%lu] %@ frame=%@ hidden=%d\n",
+             (unsigned long)(i-1), NSStringFromClass([sub class]),
+             NSStringFromCGRect(sub.frame), sub.hidden];
+        }
+    }
+    return text;
 }
