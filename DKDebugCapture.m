@@ -552,25 +552,36 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
 // DK_FEATURE_INTERACTIVES / DK_FEATURE_TEXTS
 // 通用：不写死任何 App 类名，只读 UIKit 公开 API
 // ============================================================
-// DK_FEATURE_GESTURES: 拿手势的 target-action（私有 _targets，@try 兜底）
+// DK_FEATURE_GESTURES_V2: 用 runtime ivar 偏移读 _target/_action（KVC 读 SEL 会失败）
 static NSString *DKGestureTargetsString(UIGestureRecognizer *g) {
     if (!g) return nil;
-    NSArray *targets = nil;
-    @try { targets = [g valueForKey:@"_targets"]; } @catch (__unused NSException *e) { return nil; }
+    Ivar targetsIvar = class_getInstanceVariable([UIGestureRecognizer class], "_targets");
+    if (!targetsIvar) return nil;
+    NSArray *targets = object_getIvar(g, targetsIvar);
     if (![targets isKindOfClass:[NSArray class]] || targets.count == 0) return nil;
+
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     for (id t in targets) {
+        if (!t || t == [NSNull null]) continue;
+        Class tc = object_getClass(t);
         id target = nil;
-        NSString *sel = nil;
-        @try {
-            target = [t valueForKey:@"_target"];
-            id act = [t valueForKey:@"_action"];
-            if ([act isKindOfClass:[NSString class]]) sel = act;
-            else if (act) sel = NSStringFromSelector((SEL)[(NSValue *)act pointerValue]);
-        } @catch (__unused NSException *e) { continue; }
-        if (!target || sel.length == 0) continue;
-        NSString *tc = NSStringFromClass([target class]);
-        NSString *item = [NSString stringWithFormat:@"%@:%@", tc, sel];
+        SEL action = NULL;
+
+        Ivar tIvar = class_getInstanceVariable(tc, "_target");
+        if (tIvar) target = object_getIvar(t, tIvar);
+
+        Ivar aIvar = class_getInstanceVariable(tc, "_action");
+        if (aIvar) {
+            ptrdiff_t off = ivar_getOffset(aIvar);
+            action = *(SEL *)((char *)(__bridge void *)t + off);
+        }
+        if (!target || action == NULL) continue;
+
+        NSString *targetCls = NSStringFromClass([target class]);
+        NSString *sel = NSStringFromSelector(action);
+        if (targetCls.length == 0 || sel.length == 0) continue;
+
+        NSString *item = [NSString stringWithFormat:@"%@:%@", targetCls, sel];
         if (![out containsObject:item]) [out addObject:item];
         if (out.count >= 3) break;
     }
