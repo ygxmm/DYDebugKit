@@ -668,10 +668,27 @@ static NSString *DKCaptureInteractivesText(UIWindow *window) {
 static void DKCollectTextsFromView(UIView *v, NSMutableString *out, NSUInteger depth) {
     if (!v) return;
     NSString *text = nil;
-    if ([v isKindOfClass:[UILabel class]]) text = ((UILabel *)v).text;
-    else if ([v isKindOfClass:[UITextField class]]) text = ((UITextField *)v).text;
-    else if ([v isKindOfClass:[UITextView class]]) text = ((UITextView *)v).text;
-    else if ([v isKindOfClass:[UIButton class]]) text = ((UIButton *)v).currentTitle;
+    // DK_FEATURE_UNIVERSAL_TEXT: 通用 text 抓取，覆盖 UILabel / YYLabel /
+    // DUXBaseLabel / AWEUserNameLabel 等所有自定义 Label 子类
+    if ([v respondsToSelector:@selector(text)]) {
+        @try {
+            id t = [v performSelector:@selector(text)];
+            if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) text = (NSString *)t;
+        } @catch (__unused NSException *e) {}
+    }
+    // attributedText 兜底（部分富文本 view 只有 attributedText）
+    if (text.length == 0 && [v respondsToSelector:@selector(attributedText)]) {
+        @try {
+            id at = [v performSelector:@selector(attributedText)];
+            if ([at isKindOfClass:[NSAttributedString class]] && [(NSAttributedString *)at length] > 0) {
+                text = [(NSAttributedString *)at string];
+            }
+        } @catch (__unused NSException *e) {}
+    }
+    // UIButton 的 title 单独处理（UIButton 自身没有 text 属性）
+    if (text.length == 0 && [v isKindOfClass:[UIButton class]]) {
+        text = ((UIButton *)v).currentTitle;
+    }
     if (text.length > 0) {
         NSMutableString *indent = [NSMutableString string];
         for (NSUInteger i = 0; i < depth; i++) [indent appendString:@"  "];
