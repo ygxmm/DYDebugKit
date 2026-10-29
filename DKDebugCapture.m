@@ -552,6 +552,31 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
 // DK_FEATURE_INTERACTIVES / DK_FEATURE_TEXTS
 // 通用：不写死任何 App 类名，只读 UIKit 公开 API
 // ============================================================
+// DK_FEATURE_GESTURES: 拿手势的 target-action（私有 _targets，@try 兜底）
+static NSString *DKGestureTargetsString(UIGestureRecognizer *g) {
+    if (!g) return nil;
+    NSArray *targets = nil;
+    @try { targets = [g valueForKey:@"_targets"]; } @catch (__unused NSException *e) { return nil; }
+    if (![targets isKindOfClass:[NSArray class]] || targets.count == 0) return nil;
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    for (id t in targets) {
+        id target = nil;
+        NSString *sel = nil;
+        @try {
+            target = [t valueForKey:@"_target"];
+            id act = [t valueForKey:@"_action"];
+            if ([act isKindOfClass:[NSString class]]) sel = act;
+            else if (act) sel = NSStringFromSelector((SEL)[(NSValue *)act pointerValue]);
+        } @catch (__unused NSException *e) { continue; }
+        if (!target || sel.length == 0) continue;
+        NSString *tc = NSStringFromClass([target class]);
+        NSString *item = [NSString stringWithFormat:@"%@:%@", tc, sel];
+        if (![out containsObject:item]) [out addObject:item];
+        if (out.count >= 3) break;
+    }
+    return out.count ? [out componentsJoinedByString:@","] : nil;
+}
+
 static void DKCollectInteractivesFromView(UIView *v, NSMutableString *out, NSUInteger depth) {
     if (!v) return;
     BOOL isControl = [v isKindOfClass:[UIControl class]];
@@ -559,7 +584,12 @@ static void DKCollectInteractivesFromView(UIView *v, NSMutableString *out, NSUIn
     for (UIGestureRecognizer *g in v.gestureRecognizers) {
         NSString *gc = NSStringFromClass([g class]);
         if ([gc containsString:@"Tap"] || [gc containsString:@"Press"] || [gc containsString:@"Click"]) {
-            [gestures addObject:gc];
+            NSString *tgt = DKGestureTargetsString(g); // DK_FEATURE_GESTURES
+            if (tgt.length > 0) {
+                [gestures addObject:[NSString stringWithFormat:@"%@{%@}", gc, tgt]];
+            } else {
+                [gestures addObject:gc];
+            }
         }
     }
     if (isControl || gestures.count > 0) {
@@ -594,6 +624,8 @@ static void DKCollectInteractivesFromView(UIView *v, NSMutableString *out, NSUIn
                     NSArray<NSString *> *sels = [ctrl actionsForTarget:tgt
                                                        forControlEvent:(UIControlEvents)ev.unsignedIntegerValue];
                     for (NSString *sel in sels) {
+                        if ([sel hasPrefix:@"_"]) continue; // DK_FEATURE_GESTURES: 过滤系统内部
+                        if ([sel isEqualToString:@"sendAction:withEvent:"]) continue;
                         NSString *item = [NSString stringWithFormat:@"%@:%@", tc, sel];
                         if (![acts containsObject:item]) [acts addObject:item];
                         if (acts.count >= 5) break;
