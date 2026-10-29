@@ -261,6 +261,22 @@ static NSString *DKPropertyLine(objc_property_t property) {
     if ([attrs hasPrefix:@"T"]) {
         NSString *typePart = [[attrs substringFromIndex:1] componentsSeparatedByString:@","].firstObject ?: @"@";
         type = DKTypeFromEncoding(typePart.UTF8String);
+
+        // DK_PROTO_FALLBACK: typePart 带 <...> 协议但 type 未保留时补回去。
+        // 覆盖 id<Proto> / Class<Proto>；UIView<Proto> * 若已保留则跳过。
+        if ([typePart containsString:@"<"] && ![type containsString:@"<"]) {
+            NSRange lt = [typePart rangeOfString:@"<"];
+            NSRange gt = [typePart rangeOfString:@">" options:NSBackwardsSearch];
+            if (lt.location != NSNotFound && gt.location != NSNotFound && gt.location > lt.location) {
+                NSString *proto = [typePart substringWithRange:NSMakeRange(lt.location, gt.location - lt.location + 1)];
+                if ([type isEqualToString:@"id"] || [type isEqualToString:@"Class"]) {
+                    type = [type stringByAppendingString:proto];
+                } else if ([type hasSuffix:@" *"]) {
+                    type = [[type substringToIndex:type.length - 2]
+                            stringByAppendingFormat:@"%@ *", proto];
+                }
+            }
+        }
     }
 
     NSMutableArray *parts = [NSMutableArray array];

@@ -448,7 +448,8 @@ DKDebugExportResult *DKDebugCreateExport(DKDebugExportContext *context,
     DKExportSink *sink = [[DKExportSink alloc] initWithRootDir:rootDir];
     DKWriteString(sink, @"README.txt", DKReadme(context, mode), mode == DKDebugExportModeAudio);
     DKWriteData(sink, @"ui/screenshot.png", context.screenshotPNG, NO);
-    DKWriteString(sink, @"probe/tabbar.txt", context.probeText, NO);
+    NSString *tabbarText = context.probeText.length ? context.probeText : @"tabbar not captured: probeText is empty\n"; // DK_TABBAR_FALLBACK
+    DKWriteString(sink, @"probe/tabbar.txt", tabbarText, NO);
 
     if (mode == DKDebugExportModeAudio) {
         DKWriteAudioFiles(sink, context.audioCapture, progress);

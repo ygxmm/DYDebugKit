@@ -2,3 +2,6 @@
 # Reference code (not compiled)
 darwinscope/
 darwinscope/
+*.bak.*
+packages/
+.theos/
