@@ -223,7 +223,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "------------\n"
         "manifest.json              采集元数据 + 完整性自检\n"
         "page/\n"
-        "  classes/*.h              运行时按需 dump 的头文件，一个类一个文件\n"
+        "  classes/*.h              运行时按需 dump 的头文件；选「② 导出全部 ClassDump」时为整个二进制全部类\n"
         "  view-controllers.txt     VC 树文本\n"
         "  view-tree.json           视图树 JSON\n"
         "  interactives.txt         可点击元素：UIControl / 手势 view，含 target-action\n"
@@ -335,7 +335,8 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "3. page/classes/<目标类>.h → 看属性/方法名\n"
         "4. page/view-tree.json → 定位具体子视图\n"
         "5. 查参数具体类型 → runtime 和 classdump 都只能给 id，需看源码或 dSYM\n"
-        "6. 查某个类在不在二进制里（不运行 App 时）→ classdump1/AwemeCore/*.h\n"
+        "6. classdump1 里没有的类 → 探针菜单选「② 导出全部 ClassDump」\n"
+        "   （mode=all-classes，读整个二进制的 __objc_classlist）\n"
         "7. probe/tabbar.txt 是占位，不要当真实数据\n"
         "\n"
         "十、常见坑\n"
@@ -345,6 +346,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "- 文件里多个 @end → 内联 @protocol，正常\n"
         "- 协议列表有重复 → 二进制真实状态，探针与 classdump 都这样\n"
         "- #import 整份 .h 报错 → 前向声明已生成，若仍报错则是缺系统框架，补 #import 即可\n"
+        "- classdump1 搜不到的类 → 探针菜单「② 导出全部 ClassDump」，覆盖整个二进制\n"
     ];
 return text;
 }
@@ -410,6 +412,7 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
 
     NSMutableSet<NSString *> *seen = [NSMutableSet setWithCapacity:(NSUInteger)count];
     NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:(NSUInteger)count];
+    NSMutableDictionary<NSString *, NSString *> *futureImageMap = [NSMutableDictionary dictionary]; // DK_FUTURE_FIX
     for (int i = 0; i < count; i++) {
         @autoreleasepool {
             Class cls = classes[i];
@@ -445,6 +448,9 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                     if ([seen containsObject:name]) continue;
                     [seen addObject:name];
                     [names addObject:name];
+                    NSString *imgBase = [[NSString stringWithUTF8String:imgName] lastPathComponent];
+                    imgBase = [imgBase stringByDeletingPathExtension];
+                    if (imgBase.length > 0) futureImageMap[name] = imgBase; // DK_FUTURE_FIX
                     futureAdded++;
                 }
                 free(classNames);
@@ -462,10 +468,25 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
             @try {
                 Class cls = NSClassFromString(name);
                 NSString *header = cls ? DKClassDumpHeaderForClass(cls) : nil;
-                if (!header.length) continue;
-                NSString *imageName = DKImageNameForClass(cls);
-                if (!imageName.length) continue;
-                if ([imageName isEqualToString:@"tzyhb"]) continue;
+                NSString *imageName = nil;
+                if (!cls) {
+                    // DK_FUTURE_FIX: future class 未注册，用补全阶段记录的 imageName 输出空壳
+                    imageName = futureImageMap[name];
+                    if (!imageName.length) continue;
+                    if ([imageName isEqualToString:@"tzyhb"]) continue;
+                    header = [NSString stringWithFormat:
+                        @"//\n// Future class: %@\n// Image: %@\n"
+                        @"// 未在 objc runtime 注册（iOS 16+ future class），"
+                        @"无属性/方法信息\n//\n\n"
+                        @"#import <Foundation/Foundation.h>\n\n"
+                        @"@interface %@ : NSObject\n@end\n",
+                        name, imageName, name];
+                } else {
+                    if (!header.length) continue;
+                    imageName = DKImageNameForClass(cls);
+                    if (!imageName.length) continue;
+                    if ([imageName isEqualToString:@"tzyhb"]) continue;
+                }
                 NSString *relative = [@"classes" stringByAppendingPathComponent:
                                       [imageName stringByAppendingPathComponent:
                                        [DKSafeFileName(name) stringByAppendingString:@".h"]]];
@@ -678,3 +699,4 @@ void DKDebugCleanupExport(DKDebugExportResult *result) {
 }
 // DK_README_V3
 // DK_README_V31
+// DK_README_V32
