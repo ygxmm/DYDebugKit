@@ -486,6 +486,69 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 
         [h appendString:@"\n@end\n"];
         if (protocolBlocks.length > 0) [h appendString:protocolBlocks];
+
+        // DK_FEATURE_FORWARD: 扫描 h 提取类名/协议名，在 #import 后插入前向声明
+        NSRange importEnd = [h rangeOfString:@"#import <UIKit/UIKit.h>\n\n"];
+        if (importEnd.location != NSNotFound) {
+            NSMutableSet<NSString *> *fwdClasses = [NSMutableSet set];
+            NSMutableSet<NSString *> *fwdProtocols = [NSMutableSet setWithArray:protocolNames];
+
+            // 从 <...> 里扫协议
+            NSRegularExpression *protoRe = [NSRegularExpression
+                regularExpressionWithPattern:@"<([^>]+)>" options:0 error:nil];
+            for (NSTextCheckingResult *m in [protoRe matchesInString:h options:0
+                                                    range:NSMakeRange(0, h.length)]) {
+                NSString *inner = [h substringWithRange:[m rangeAtIndex:1]];
+                for (NSString *p in [inner componentsSeparatedByString:@","]) {
+                    NSString *trimmed = [p stringByTrimmingCharactersInSet:
+                                         [NSCharacterSet whitespaceCharacterSet]];
+                    if (trimmed.length > 0 && [trimmed rangeOfString:@"<"].location == NSNotFound) {
+                        [fwdProtocols addObject:trimmed];
+                    }
+                }
+            }
+
+            // 从 `类名 *` 扫类
+            NSRegularExpression *clsRe = [NSRegularExpression
+                regularExpressionWithPattern:@"\\b([A-Z][A-Za-z0-9_]+)\\s*\\*" options:0 error:nil];
+            for (NSTextCheckingResult *m in [clsRe matchesInString:h options:0
+                                                   range:NSMakeRange(0, h.length)]) {
+                [fwdClasses addObject:[h substringWithRange:[m rangeAtIndex:1]]];
+            }
+
+            // 过滤系统类/协议
+            NSSet *sys = [NSSet setWithArray:@[
+                @"NSString", @"NSArray", @"NSMutableArray", @"NSDictionary", @"NSMutableDictionary",
+                @"NSObject", @"NSNumber", @"NSData", @"NSDate", @"NSError", @"NSURL", @"NSBundle",
+                @"NSSet", @"NSMutableSet", @"NSHashTable", @"NSNotification", @"NSCoder",
+                @"NSCoding", @"NSCopying", @"NSMutableCopying", @"NSSecureCoding", @"NSFastEnumeration",
+                @"UIView", @"UIViewController", @"UIImage", @"UIColor", @"UIFont", @"UIWindow",
+                @"UIApplication", @"UIScreen", @"UIButton", @"UILabel", @"UITableView",
+                @"UICollectionView", @"UIScrollView", @"UITableViewCell", @"UICollectionViewCell",
+                @"UITextField", @"UITextView", @"UINavigationController", @"UITabBarController",
+                @"UIResponder", @"UIControl", @"UIStackView", @"UIGestureRecognizer",
+            ]];
+            [fwdClasses minusSet:sys];
+            [fwdProtocols minusSet:sys];
+            [fwdClasses removeObject:className];
+            [fwdClasses removeObject:superName];
+            [fwdClasses minusSet:fwdProtocols];
+
+            NSMutableString *fwd = [NSMutableString string];
+            for (NSString *c in [[fwdClasses allObjects]
+                                 sortedArrayUsingSelector:@selector(compare:)]) {
+                [fwd appendFormat:@"@class %@;\n", c];
+            }
+            for (NSString *p in [[fwdProtocols allObjects]
+                                 sortedArrayUsingSelector:@selector(compare:)]) {
+                [fwd appendFormat:@"@protocol %@;\n", p];
+            }
+            if (fwd.length > 0) {
+                [h insertString:[NSString stringWithFormat:@"%@\n", fwd]
+                        atIndex:importEnd.location + importEnd.length];
+            }
+        }
+
         return h;
     } @catch (__unused NSException *e) {
         return nil;
