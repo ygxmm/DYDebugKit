@@ -297,7 +297,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "        NSObject 属性混入子类（hash/superclass/description/debugDescription）\n"
         "  使用：\n"
         "    查方法名 → 可信\n"
-        "    查参数具体类型 → 不可信，去 classdump1 或 runtime 查\n"
+        "    查参数具体类型 → 不可信，runtime 和 classdump 都只能给 id\n"
         "    #import 整份 → 大部分已可，极少数系统框架类仍缺，缺了补 #import\n"
         "    hook → NSClassFromString + class_getInstanceMethod，不依赖头文件\n"
         "\n"
@@ -316,7 +316,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "内容为 \"tabbar not captured: probeText is empty\"。\n"
         "原因：采集端从未给 probeText 赋值（声明了但无实现）。\n"
         "含义：不是写入失败，是采集逻辑缺失。\n"
-        "与头部 Contents 里 \"液态玻璃底栏现场\" 的描述不符，以本节为准。\n"
+        "头部 Contents 已标注为占位，与本节一致。\n"
         "真采集需改 DKDebugCapture.m 遍历 tabbar 并赋值。\n"
         "\n"
         "七、probe/audio-summary.txt\n"
@@ -336,7 +336,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "4. page/view-tree.json → 定位具体子视图\n"
         "5. 查参数具体类型 → runtime 和 classdump 都只能给 id，需看源码或 dSYM\n"
         "6. 查某个类在不在二进制里（不运行 App 时）→ classdump1/AwemeCore/*.h\n"
-        "6. probe/tabbar.txt 是占位，不要当真实数据\n"
+        "7. probe/tabbar.txt 是占位，不要当真实数据\n"
         "\n"
         "十、常见坑\n"
         "----------\n"
@@ -677,3 +677,4 @@ void DKDebugCleanupExport(DKDebugExportResult *result) {
     if (result.zipURL.isFileURL) [fm removeItemAtURL:result.zipURL error:nil];
 }
 // DK_README_V3
+// DK_README_V31
