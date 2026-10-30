@@ -253,7 +253,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
                 }
                 if ([detail isKindOfClass:[UILabel class]]) detail.text = detailText;
             });
-        }
+        }, &error); // DK_BLOCK_FIXED
 
         dispatch_async(dispatch_get_main_queue(), ^{
             self.exporting = NO;
