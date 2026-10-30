@@ -366,6 +366,7 @@ DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
     DKWriteString(sink, @"page/interactives.txt", context.interactivesText ?: @"(empty)\n", NO); // DK_FEATURE_EXPORT
     DKWriteString(sink, @"page/texts.txt", context.textsText ?: @"(empty)\n", NO);
     DKWriteString(sink, @"page/images.txt", context.imagesText ?: @"(empty)\n", NO); // DK_FEATURE_IMAGES
+    DKWriteString(sink, @"page/responders.txt", context.respondersText ?: @"(empty)\n", NO); // DK_FEATURE_RESPONDERS
     if (progress) progress(@"导出本页类头文件...");
     DKWritePageClasses(sink, context.pageClassNames ?: @[]);
 }

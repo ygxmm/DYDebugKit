@@ -485,6 +485,7 @@ NSArray<NSString *> *DKGetCapturedPageSwiftClasses(void) {
 static NSString *DKCaptureInteractivesText(UIWindow *window);
 static NSString *DKCaptureTextsText(UIWindow *window);
 static NSString *DKCaptureImagesText(UIWindow *window); // DK_FEATURE_IMAGES
+static NSString *DKCaptureRespondersText(UIWindow *window); // DK_FEATURE_RESPONDERS
 
 DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView) {
     DKDebugExportContext *context = [DKDebugExportContext new];
@@ -545,6 +546,7 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
     context.interactivesText = DKCaptureInteractivesText(targetWindow); // DK_FEATURE_INTERACTIVES
     context.textsText = DKCaptureTextsText(targetWindow);              // DK_FEATURE_TEXTS
     context.imagesText = DKCaptureImagesText(targetWindow);                // DK_FEATURE_IMAGES
+    context.respondersText = DKCaptureRespondersText(targetWindow);        // DK_FEATURE_RESPONDERS
     context.sourceView = targetWindow;
     context.presenter = DKDebugTopPresenter(targetWindow);
     return context;
@@ -735,5 +737,37 @@ static NSString *DKCaptureImagesText(UIWindow *window) {
     [out appendString:@"# Images (UIImageView)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
     DKCollectImagesFromView(window, out, 0);
+    return out;
+}
+
+// ============================================================
+// DK_FEATURE_RESPONDERS: 可交互元素的响应链（view -> superview ... -> VC -> window）
+// ============================================================
+static void DKCollectRespondersFromView(UIView *v, NSMutableString *out, NSUInteger depth) {
+    if (!v) return;
+    BOOL interactive = [v isKindOfClass:[UIControl class]] || v.gestureRecognizers.count > 0;
+    if (interactive) {
+        NSMutableString *indent = [NSMutableString string];
+        for (NSUInteger i = 0; i < MIN(depth, 8); i++) [indent appendString:@"  "];
+        NSMutableArray<NSString *> *chain = [NSMutableArray array];
+        UIResponder *cur = v;
+        int d = 0;
+        while (cur && d < 8) {
+            [chain addObject:NSStringFromClass([cur class])];
+            cur = cur.nextResponder;
+            d++;
+        }
+        [out appendFormat:@"%@%@ frame=%@ chain=%@\n",
+         indent, NSStringFromClass([v class]), NSStringFromCGRect(v.frame),
+         [chain componentsJoinedByString:@" > "]];
+    }
+    for (UIView *sub in v.subviews) DKCollectRespondersFromView(sub, out, depth + 1);
+}
+
+static NSString *DKCaptureRespondersText(UIWindow *window) {
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"# Responder chains (UIControl / gesture view -> nextResponder ...)\n"];
+    if (!window) { [out appendString:@"(no window)\n"]; return out; }
+    DKCollectRespondersFromView(window, out, 0);
     return out;
 }
