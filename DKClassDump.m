@@ -290,9 +290,9 @@ static NSString *DKProtocolMethodLine(SEL sel, const char *types, BOOL isClassMe
         NSString *seg = (k < (NSInteger)parts.count) ? parts[k] : @"";
         NSString *t = (k < (NSInteger)argTypes.count) ? argTypes[k] : @"id";
         if (k == 0) {
-            [line appendFormat:@"%@:(%@)arg%ld", seg, t, (long)(k + 2)];
+            [line appendFormat:@"%@:(%@)", seg, t]; // DK_NO_ARGN
         } else {
-            [line appendFormat:@" %@:(%@)arg%ld", seg, t, (long)(k + 2)];
+            [line appendFormat:@" %@:(%@)", seg, t]; // DK_NO_ARGN
         }
     }
     [line appendString:@";\n"];
@@ -369,9 +369,9 @@ static NSString *DKMethodLine(Method m, BOOL isClassMethod) {
         NSString *argType = DKTypeFromEncoding(argTypeRaw);
         if (argTypeRaw) free(argTypeRaw);
         if (i == 0) {
-            [line appendFormat:@"%@:(%@)arg%lu", label.length ? label : @"method", argType, (unsigned long)(i + 2)];
+            [line appendFormat:@"%@:(%@)", label.length ? label : @"method", argType]; // DK_NO_ARGN
         } else {
-            [line appendFormat:@" %@:(%@)arg%lu", label.length ? label : @"param", argType, (unsigned long)(i + 2)];
+            [line appendFormat:@" %@:(%@)", label.length ? label : @"param", argType]; // DK_NO_ARGN
         }
     }
     [line appendString:@";"];
