@@ -210,7 +210,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
          capture.actualState ?: @"unknown"];
     } else {
         [text appendString:@"Contents:\n- page/: UI 主线程快照与本页类\n"];
-        [text appendString:@"- probe/tabbar.txt: 液态玻璃底栏现场\n- ui/: 目标窗口截图\n"];
+        [text appendString:@"- probe/tabbar.txt: 占位（tabbar 采集已回滚，见 README 第六节）\n- ui/: 目标窗口截图\n"];
     }
         // DK_README_DETAIL: 每次导出自动附带的文件级说明
     [text appendString:
@@ -292,13 +292,13 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "        UIView<Protocol> / UITableViewCell<Protocol> 的协议、\n"
         "        id<Protocol> 的协议（已修，DK_PROTO_FALLBACK）\n"
         "  退化：方法返回/参数类型多为 id（runtime 限制，classdump 一样）\n"
-        "        block 属性为 id（源码是 void (^)(...)，@? 未解析）\n"
-        "        可能缺 @class 前向声明\n"
+        "        block 属性为 id /* block */（@? 已识别；@?<...> 可还原 ret (^)(args)）\n"
+        "        @class / @protocol 前向声明已生成（自 a11a145 起）\n"
         "        NSObject 属性混入子类（hash/superclass/description/debugDescription）\n"
         "  使用：\n"
         "    查方法名 → 可信\n"
         "    查参数具体类型 → 不可信，去 classdump1 或 runtime 查\n"
-        "    #import 整份 → 会缺依赖，只抄需要的行\n"
+        "    #import 整份 → 大部分已可，极少数系统框架类仍缺，缺了补 #import\n"
         "    hook → NSClassFromString + class_getInstanceMethod，不依赖头文件\n"
         "\n"
         "四、page/view-controllers.txt\n"
@@ -334,7 +334,8 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "2. page/view-controllers.txt → 找目标 VC 及 frame\n"
         "3. page/classes/<目标类>.h → 看属性/方法名\n"
         "4. page/view-tree.json → 定位具体子视图\n"
-        "5. 需要参数具体类型或完整继承链 → 去 classdump1/AwemeCore/*.h\n"
+        "5. 查参数具体类型 → runtime 和 classdump 都只能给 id，需看源码或 dSYM\n"
+        "6. 查某个类在不在二进制里（不运行 App 时）→ classdump1/AwemeCore/*.h\n"
         "6. probe/tabbar.txt 是占位，不要当真实数据\n"
         "\n"
         "十、常见坑\n"
@@ -343,7 +344,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "- 属性是裸 id → 可能是 block，或源码真裸 id，不是协议丢失\n"
         "- 文件里多个 @end → 内联 @protocol，正常\n"
         "- 协议列表有重复 → 二进制真实状态，探针与 classdump 都这样\n"
-        "- #import 整份 .h 报错 → 缺前向声明，只抄需要的行\n"
+        "- #import 整份 .h 报错 → 前向声明已生成，若仍报错则是缺系统框架，补 #import 即可\n"
     ];
 return text;
 }
@@ -675,3 +676,4 @@ void DKDebugCleanupExport(DKDebugExportResult *result) {
     if (result.workingDirectoryURL.isFileURL) [fm removeItemAtURL:result.workingDirectoryURL error:nil];
     if (result.zipURL.isFileURL) [fm removeItemAtURL:result.zipURL error:nil];
 }
+// DK_README_V3
