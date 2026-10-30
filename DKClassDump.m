@@ -493,16 +493,25 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
             NSMutableSet<NSString *> *fwdClasses = [NSMutableSet set];
             NSMutableSet<NSString *> *fwdProtocols = [NSMutableSet setWithArray:protocolNames];
 
+            // DK_FWD_FIX: 从 @interface 开始扫描，避开 #import <...> 里的路径
+            NSUInteger scanStart = 0;
+            NSRange ifaceR = [h rangeOfString:@"@interface"];
+            if (ifaceR.location != NSNotFound) scanStart = ifaceR.location;
+            NSRange scanRange = NSMakeRange(scanStart, h.length - scanStart);
+
             // 从 <...> 里扫协议
             NSRegularExpression *protoRe = [NSRegularExpression
                 regularExpressionWithPattern:@"<([^>]+)>" options:0 error:nil];
             for (NSTextCheckingResult *m in [protoRe matchesInString:h options:0
-                                                    range:NSMakeRange(0, h.length)]) {
+                                                    range:scanRange]) {
                 NSString *inner = [h substringWithRange:[m rangeAtIndex:1]];
                 for (NSString *p in [inner componentsSeparatedByString:@","]) {
                     NSString *trimmed = [p stringByTrimmingCharactersInSet:
                                          [NSCharacterSet whitespaceCharacterSet]];
-                    if (trimmed.length > 0 && [trimmed rangeOfString:@"<"].location == NSNotFound) {
+                    if (trimmed.length > 0
+                        && [trimmed rangeOfString:@"<"].location == NSNotFound
+                        && [trimmed rangeOfString:@"/"].location == NSNotFound  // DK_FWD_FIX
+                        && [trimmed rangeOfString:@"."].location == NSNotFound) {
                         [fwdProtocols addObject:trimmed];
                     }
                 }
@@ -512,7 +521,7 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
             NSRegularExpression *clsRe = [NSRegularExpression
                 regularExpressionWithPattern:@"\\b([A-Z][A-Za-z0-9_]+)\\s*\\*" options:0 error:nil];
             for (NSTextCheckingResult *m in [clsRe matchesInString:h options:0
-                                                   range:NSMakeRange(0, h.length)]) {
+                                                   range:scanRange]) {
                 [fwdClasses addObject:[h substringWithRange:[m rangeAtIndex:1]]];
             }
 
