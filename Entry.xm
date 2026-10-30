@@ -204,6 +204,41 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
                 if ([lbl isKindOfClass:[UILabel class]]) {
                     lbl.text = text;
                 }
+                // DK_HUD_PROGRESS: 解析百分比并更新进度条
+                UIProgressView *bar = (UIProgressView *)[hud viewWithTag:8888];
+                if (![bar isKindOfClass:[UIProgressView class]]) return;
+                float p = bar.progress;
+
+                // 阶段映射
+                if ([text containsString:@"读取运行时类列表"]) p = 0.03;
+                else if ([text containsString:@"运行时共"]) p = 0.05;
+                else if ([text containsString:@"补全 future class"]) p = 0.08;
+                else if ([text containsString:@"future class 补全"]) p = 0.12;
+                else if ([text containsString:@"写入全部类头文件"]) p = 0.15;
+                else if ([text containsString:@"写入页面结构"]) p = 0.10;
+                else if ([text containsString:@"导出本页类头文件"]) p = 0.15;
+                else if ([text containsString:@"全部类导出完成"]) p = 0.95;
+                else if ([text containsString:@"静态解析 category"]) p = 0.96;
+                else if ([text containsString:@"已解析"]) p = MIN(0.98, p + 0.001);
+                else if ([text containsString:@"category 解析完成"]) p = 0.98;
+                else if ([text containsString:@"写入音频采集结果"]) p = 0.90;
+                else if ([text containsString:@"压缩 zip"]) p = 0.99;
+
+                // "已导出 N / T（X%）" 线性映射到 0.15 ~ 0.95
+                NSRegularExpression *re = [NSRegularExpression
+                    regularExpressionWithPattern:@"（([0-9.]+)%）" options:0 error:nil];
+                NSTextCheckingResult *m = [re firstMatchInString:text options:0
+                                                           range:NSMakeRange(0, text.length)];
+                if (m) {
+                    float pct = [[text substringWithRange:[m rangeAtIndex:1]] floatValue] / 100.0f;
+                    if ([text containsString:@"已导出"]) {
+                        p = 0.15f + pct * 0.80f;
+                    } else {
+                        p = pct;
+                    }
+                }
+
+                [bar setProgress:MAX(bar.progress, MIN(p, 1.0f)) animated:YES];
             });
         }, &error);
 
@@ -225,19 +260,19 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     hud.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
     hud.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
-    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 180, 180)];
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 200, 200)]; // DK_HUD_PROGRESS
     box.center = CGPointMake(hud.bounds.size.width / 2.0, hud.bounds.size.height / 2.0);
     box.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.9];
     box.layer.cornerRadius = 16.0;
     box.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
 
     UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
-    spinner.center = CGPointMake(90.0, 60.0);
+    spinner.center = CGPointMake(100.0, 55.0); // DK_HUD_PROGRESS
     spinner.color = UIColor.whiteColor;
     [spinner startAnimating];
     [box addSubview:spinner];
 
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(10.0, 95.0, 160.0, 75.0)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12.0, 90.0, 176.0, 60.0)]; // DK_HUD_PROGRESS
     label.text = text;
     label.textColor = UIColor.whiteColor;
     label.textAlignment = NSTextAlignmentCenter;
@@ -248,6 +283,14 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     label.minimumScaleFactor = 0.6;
     label.lineBreakMode = NSLineBreakByWordWrapping;
     [box addSubview:label];
+
+    UIProgressView *bar = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
+    bar.frame = CGRectMake(16.0, 164.0, 168.0, 4.0);
+    bar.progressTintColor = [UIColor colorWithRed:0.25 green:0.65 blue:1.0 alpha:1.0];
+    bar.trackTintColor = [UIColor colorWithWhite:0.35 alpha:1.0];
+    bar.progress = 0.0f;
+    bar.tag = 8888;
+    [box addSubview:bar];
 
     [hud addSubview:box];
     [self.view addSubview:hud];
