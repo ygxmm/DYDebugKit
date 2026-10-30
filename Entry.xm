@@ -200,31 +200,31 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         DKDebugExportResult *result = DKDebugCreateExport(context, mode, ^(NSString *text) {
             if (!text.length) return;
             dispatch_async(dispatch_get_main_queue(), ^{
-                UILabel *lbl = (UILabel *)[hud viewWithTag:9999];
-                if ([lbl isKindOfClass:[UILabel class]]) {
-                    lbl.text = text;
-                }
-                // DK_HUD_PROGRESS: 解析百分比并更新进度条
+                // DK_HUD_V2
+                UILabel *title = (UILabel *)[hud viewWithTag:7777];
+                UILabel *pctLbl = (UILabel *)[hud viewWithTag:6666];
+                UILabel *detail = (UILabel *)[hud viewWithTag:9999];
                 UIProgressView *bar = (UIProgressView *)[hud viewWithTag:8888];
                 if (![bar isKindOfClass:[UIProgressView class]]) return;
-                float p = bar.progress;
 
-                // 阶段映射
-                if ([text containsString:@"读取运行时类列表"]) p = 0.03;
-                else if ([text containsString:@"运行时共"]) p = 0.05;
-                else if ([text containsString:@"补全 future class"]) p = 0.08;
-                else if ([text containsString:@"future class 补全"]) p = 0.12;
-                else if ([text containsString:@"写入全部类头文件"]) p = 0.15;
-                else if ([text containsString:@"写入页面结构"]) p = 0.10;
-                else if ([text containsString:@"导出本页类头文件"]) p = 0.15;
-                else if ([text containsString:@"全部类导出完成"]) p = 0.95;
-                else if ([text containsString:@"静态解析 category"]) p = 0.96;
-                else if ([text containsString:@"已解析"]) p = MIN(0.98, p + 0.001);
-                else if ([text containsString:@"category 解析完成"]) p = 0.98;
-                else if ([text containsString:@"写入音频采集结果"]) p = 0.90;
-                else if ([text containsString:@"压缩 zip"]) p = 0.99;
+                NSString *phase = @"导出中";
+                NSString *detailText = text;
+                float target = bar.progress;
 
-                // "已导出 N / T（X%）" 线性映射到 0.15 ~ 0.95
+                if ([text containsString:@"读取运行时类列表"]) { phase = @"读取类列表"; target = 0.03; }
+                else if ([text containsString:@"运行时共"]) { phase = @"扫描运行时"; target = 0.05; }
+                else if ([text containsString:@"补全 future class"]) { phase = @"补全类名"; target = 0.08; }
+                else if ([text containsString:@"future class 补全"]) { phase = @"补全完成"; target = 0.12; }
+                else if ([text containsString:@"写入全部类头文件"]) { phase = @"写入头文件"; target = 0.15; }
+                else if ([text containsString:@"写入页面结构"]) { phase = @"写入页面"; target = 0.10; }
+                else if ([text containsString:@"导出本页类头文件"]) { phase = @"导出本页类"; target = 0.15; }
+                else if ([text containsString:@"全部类导出完成"]) { phase = @"头文件完成"; target = 0.95; }
+                else if ([text containsString:@"静态解析 category"]) { phase = @"解析 category"; target = 0.96; }
+                else if ([text containsString:@"已解析"]) { phase = @"解析 category"; target = MIN(0.98, bar.progress + 0.002); }
+                else if ([text containsString:@"category 解析完成"]) { phase = @"category 完成"; target = 0.98; }
+                else if ([text containsString:@"写入音频采集结果"]) { phase = @"写入音频"; target = 0.90; }
+                else if ([text containsString:@"压缩 zip"]) { phase = @"压缩打包"; target = 0.99; }
+
                 NSRegularExpression *re = [NSRegularExpression
                     regularExpressionWithPattern:@"（([0-9.]+)%）" options:0 error:nil];
                 NSTextCheckingResult *m = [re firstMatchInString:text options:0
@@ -232,15 +232,28 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
                 if (m) {
                     float pct = [[text substringWithRange:[m rangeAtIndex:1]] floatValue] / 100.0f;
                     if ([text containsString:@"已导出"]) {
-                        p = 0.15f + pct * 0.80f;
-                    } else {
-                        p = pct;
+                        phase = @"写入头文件";
+                        target = 0.15f + pct * 0.80f;
+                        NSRange prefix = [text rangeOfString:@"已导出 "];
+                        if (prefix.location != NSNotFound) {
+                            NSString *rest = [text substringFromIndex:NSMaxRange(prefix)];
+                            NSRange pctStart = [rest rangeOfString:@"（"];
+                            if (pctStart.location != NSNotFound) {
+                                detailText = [rest substringToIndex:pctStart.location];
+                            }
+                        }
                     }
                 }
 
-                [bar setProgress:MAX(bar.progress, MIN(p, 1.0f)) animated:YES];
+                target = MIN(MAX(target, bar.progress), 1.0f);
+                [bar setProgress:target animated:YES];
+                if ([title isKindOfClass:[UILabel class]]) title.text = phase;
+                if ([pctLbl isKindOfClass:[UILabel class]]) {
+                    pctLbl.text = [NSString stringWithFormat:@"%.0f%%", target * 100.0f];
+                }
+                if ([detail isKindOfClass:[UILabel class]]) detail.text = detailText;
             });
-        }, &error);
+        }
 
         dispatch_async(dispatch_get_main_queue(), ^{
             self.exporting = NO;
@@ -256,46 +269,60 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 }
 
 - (UIView *)showLoadingHUD:(NSString *)text {
+    // DK_HUD_V2: 现代进度 HUD
     UIView *hud = [[UIView alloc] initWithFrame:self.view.bounds];
-    hud.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.35];
+    hud.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.45];
     hud.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
-    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 200, 200)]; // DK_HUD_PROGRESS
+    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 280, 208)];
     box.center = CGPointMake(hud.bounds.size.width / 2.0, hud.bounds.size.height / 2.0);
-    box.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.9];
-    box.layer.cornerRadius = 16.0;
-    box.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    box.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.95];
+    box.layer.cornerRadius = 18.0;
+    box.layer.masksToBounds = YES;
+    box.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin
+                         | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
 
-    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
-    spinner.center = CGPointMake(100.0, 55.0); // DK_HUD_PROGRESS
-    spinner.color = UIColor.whiteColor;
-    [spinner startAnimating];
-    [box addSubview:spinner];
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(20, 22, 240, 20)];
+    title.text = text;
+    title.textColor = [UIColor colorWithWhite:0.65 alpha:1.0];
+    title.textAlignment = NSTextAlignmentCenter;
+    title.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    title.tag = 7777;
+    [box addSubview:title];
 
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(12.0, 90.0, 176.0, 60.0)]; // DK_HUD_PROGRESS
-    label.text = text;
-    label.textColor = UIColor.whiteColor;
-    label.textAlignment = NSTextAlignmentCenter;
-    label.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightMedium];
-    label.tag = 9999;
-    label.numberOfLines = 3;
-    label.adjustsFontSizeToFitWidth = YES;
-    label.minimumScaleFactor = 0.6;
-    label.lineBreakMode = NSLineBreakByWordWrapping;
-    [box addSubview:label];
+    UILabel *pct = [[UILabel alloc] initWithFrame:CGRectMake(20, 46, 240, 48)];
+    pct.text = @"0%";
+    pct.textColor = UIColor.whiteColor;
+    pct.textAlignment = NSTextAlignmentCenter;
+    pct.font = [UIFont monospacedDigitSystemFontOfSize:42 weight:UIFontWeightBold];
+    pct.tag = 6666;
+    [box addSubview:pct];
 
     UIProgressView *bar = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
-    bar.frame = CGRectMake(16.0, 164.0, 168.0, 4.0);
-    bar.progressTintColor = [UIColor colorWithRed:0.25 green:0.65 blue:1.0 alpha:1.0];
-    bar.trackTintColor = [UIColor colorWithWhite:0.35 alpha:1.0];
+    bar.frame = CGRectMake(24, 106, 232, 6);
+    bar.transform = CGAffineTransformMakeScale(1.0, 3.0);
+    bar.progressTintColor = [UIColor colorWithRed:0.20 green:0.60 blue:1.00 alpha:1.0];
+    bar.trackTintColor = [UIColor colorWithWhite:0.22 alpha:1.0];
+    bar.layer.cornerRadius = 3.0;
+    bar.clipsToBounds = YES;
     bar.progress = 0.0f;
     bar.tag = 8888;
     [box addSubview:bar];
 
+    UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(20, 128, 240, 56)];
+    detail.text = @"";
+    detail.textColor = [UIColor colorWithWhite:0.55 alpha:1.0];
+    detail.textAlignment = NSTextAlignmentCenter;
+    detail.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
+    detail.numberOfLines = 2;
+    detail.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    detail.tag = 9999;
+    [box addSubview:detail];
+
     [hud addSubview:box];
     [self.view addSubview:hud];
     hud.alpha = 0.0;
-    [UIView animateWithDuration:0.15 animations:^{ hud.alpha = 1.0; }];
+    [UIView animateWithDuration:0.18 animations:^{ hud.alpha = 1.0; }];
     return hud;
 }
 
