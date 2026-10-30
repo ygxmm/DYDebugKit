@@ -343,7 +343,9 @@ static NSString *DKPropertyLine(objc_property_t property) {
     else if ([type containsString:@"*"] || [type isEqualToString:@"id"]) [parts addObject:@"strong"];
     else [parts addObject:@"assign"];
 
-    return [NSString stringWithFormat:@"@property (%@) %@ %@;", [parts componentsJoinedByString:@", "], type, name];
+    // DK_SPACE_FIX: type 已含 * 时不额外加空格
+    NSString *sep = [type hasSuffix:@"*"] ? @"" : @" ";
+    return [NSString stringWithFormat:@"@property (%@) %@%@%@;", [parts componentsJoinedByString:@", "], type, sep, name];
 }
 
 static NSString *DKMethodLine(Method m, BOOL isClassMethod) {
