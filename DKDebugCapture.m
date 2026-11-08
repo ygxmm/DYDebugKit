@@ -464,6 +464,64 @@ static void DKAppendViewNode(UIView *v, NSMutableString *out, NSUInteger depth) 
     for (UIView *sub in v.subviews) DKAppendViewNode(sub, out, depth + 1);
 }
 
+static NSString *DKTabBarLabel(UIView *v) {
+    NSString *cls = NSStringFromClass([v class]);
+    NSString *label = v.accessibilityLabel ?: @"";
+    if (label.length == 0 && [cls containsString:@"Plus"]) label = @"+";
+    if (label.length == 0) label = cls;
+    return label;
+}
+
+static NSString *DKTabBarSummaryText(UIView *bar) {
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"=== Summary ===\n"];
+
+    NSMutableArray<NSString *> *visibleItems = [NSMutableArray array];
+    NSMutableArray<NSString *> *hiddenItems = [NSMutableArray array];
+    NSMutableArray<NSValue *> *visibleRects = [NSMutableArray array];
+
+    for (UIView *sub in bar.subviews) {
+        NSString *cls = NSStringFromClass([sub class]);
+        BOOL isBtn = [cls containsString:@"GeneralButton"]
+                  || [cls containsString:@"PlusInnerButton"]
+                  || [cls isEqualToString:@"UITabBarButton"];
+        if (!isBtn) continue;
+
+        NSString *label = DKTabBarLabel(sub);
+        NSString *item = [NSString stringWithFormat:@"%@%@", label, NSStringFromCGRect(sub.frame)];
+        if (sub.hidden) {
+            [hiddenItems addObject:item];
+        } else {
+            [visibleItems addObject:item];
+            [visibleRects addObject:[NSValue valueWithCGRect:sub.frame]];
+        }
+    }
+
+    [out appendFormat:@"total: %lu\n", (unsigned long)(visibleItems.count + hiddenItems.count)];
+    [out appendFormat:@"visible: %lu\n", (unsigned long)visibleItems.count];
+    [out appendFormat:@"hidden: %lu\n", (unsigned long)hiddenItems.count];
+    if (visibleItems.count) [out appendFormat:@"visible_items: %@\n", [visibleItems componentsJoinedByString:@", "]];
+    if (hiddenItems.count) [out appendFormat:@"hidden_items: %@\n", [hiddenItems componentsJoinedByString:@", "]];
+
+    BOOL overlap = NO;
+    for (NSUInteger i = 0; i < visibleRects.count; i++) {
+        for (NSUInteger j = i + 1; j < visibleRects.count; j++) {
+            if (CGRectIntersectsRect([visibleRects[i] CGRectValue], [visibleRects[j] CGRectValue])) {
+                overlap = YES;
+            }
+        }
+    }
+    [out appendFormat:@"visible_overlaps: %@\n", overlap ? @"YES" : @"no"];
+
+    if (visibleRects.count > 0) {
+        CGFloat totalW = 0;
+        for (NSValue *v in visibleRects) totalW += [v CGRectValue].size.width;
+        [out appendFormat:@"visible_total_width: %.1f / %.1f\n", totalW, bar.bounds.size.width];
+    }
+    [out appendString:@"\n"];
+    return out;
+}
+
 static NSString *DKCaptureTabBarProbe(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# TabBar probe (generic)\n"];
@@ -489,7 +547,8 @@ static NSString *DKCaptureTabBarProbe(UIWindow *window) {
         return out;
     }
     for (UIView *bar in tabBars) {
-        [out appendString:@"\n=== TabBar ===\n"];
+        [out appendString:DKTabBarSummaryText(bar)];
+        [out appendString:@"=== TabBar ===\n"];
         DKAppendViewNode(bar, out, 0);
     }
     return out;
