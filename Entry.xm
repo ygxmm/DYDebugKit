@@ -16,7 +16,17 @@ static BOOL DYIsCurrentAppEnabled(void) {
     if (bid.length == 0) return NO;
     if ([bid isEqualToString:@"com.apple.springboard"]) return NO;
 
-    // TrollFools 注入模式：注入即启用，不读任何配置文件
+    if ([bid hasPrefix:@"com.apple."]) {
+        NSArray *allowed = @[
+            @"com.apple.mobilesafari",
+            @"com.apple.mobilenotes",
+            @"com.apple.Preferences",
+        ];
+        BOOL ok = [allowed containsObject:bid];
+        NSLog(@"[tzyhb] ==system app== %@ -> %d", bid, ok);
+        return ok;
+    }
+
     NSLog(@"[tzyhb] ==enabled== %@ -> 1 (injected)", bid);
     return YES;
 }

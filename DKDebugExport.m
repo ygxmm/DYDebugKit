@@ -245,7 +245,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "\n"
         "二、manifest.json 关键字段\n"
         "--------------------------\n"
-        "device.appVersion / buildVersion   抖音 App Store 版本\n"
+        "device.appVersion / buildVersion   目标 App 版本\n"
         "device.generatedAt                 采集时间\n"
         "device.deviceModel / systemVersion 设备与系统\n"
         "device.screenBounds                屏幕尺寸\n"
@@ -261,7 +261,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "\n"
         "注意：\n"
         "- targetWindow 若是 DYKillerOverlayWindow，说明采集时拿的是自己的浮层，\n"
-        "  不是抖音 keyWindow，tabbar/截图可能不准。\n"
+        "  不是目标 App keyWindow，tabbar/截图可能不准。\n"
         "- tapPointInTargetWindow 为 {0,0} 说明没有有效点击目标。\n"
         "\n"
         "三之补、page/*.txt 各文件说明（DK_README_NEW_FILES）\n"
@@ -289,8 +289,8 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "运行时按需 dump 的头文件，只含当前页面链路出现过的类，不在链路就没有。\n"
         "文件头三行：\n"
         "  // Dumped by DYKiller DKClassDump\n"
-        "  // Bundle: com.ss.iphone.ugc.Aweme\n"
-        "  // Image: AwemeCore\n"
+        "  // Bundle: <目标 BundleID>\n"
+        "  // Image: <目标 Image>\n"
         "结构：@interface 类名 : 父类 <协议列表> { ivar } 属性 方法 @end，\n"
         "可能内联 @protocol（会多出多个 @end，正常）。\n"
         "\n"
@@ -333,7 +333,7 @@ static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode)
         "八、ui/screenshot.png\n"
         "---------------------\n"
         "目标窗口截图，按 windowLevel 从低到高合成，尽量等于用户所见。\n"
-        "若 targetWindow 是 DYKillerOverlayWindow，截图可能含浮层或不是抖音画面。\n"
+        "若 targetWindow 是 DYKillerOverlayWindow，截图可能含浮层或不是目标 App 画面。\n"
         "\n"
         "九、AI 使用顺序\n"
         "---------------\n"
@@ -434,7 +434,7 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
 
     // iOS 16+ future class 兜底：
     //   objc_getClassList 只返回已注册的类。iOS 16 引入 objc_setFutureClass 机制，
-    //   二进制里定义的类在首次使用前不会注册，抖音等巨型 App 会丢 40%+ 的类。
+    //   二进制里定义的类在首次使用前不会注册，大型 App 会丢 40%+ 的类。
     //   objc_copyClassNamesForImage 直接读 image 的 __objc_classlist 段，能看到全部类名。
     if (progress) progress(@"补全 future class（iOS 16+）...");
     {

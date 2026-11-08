@@ -386,7 +386,7 @@ static void DKAppendVCText(UIViewController *vc, NSUInteger depth, NSMutableStri
 }
 
 // 按 windowLevel 从低到高逐个画，截图才等于用户真正看到的画面。
-// 只画 key 窗口会漏掉浮层：抖音的内嵌画中画 AWEDPlayerPiPWindow 在 windowLevel 2000，
+// 只画 key 窗口会漏掉浮层：某些 App 的内嵌画中画窗口 在 windowLevel 2000，
 // 它铺满全屏时导出截图却一切正常，排查会整整绕一轮。
 static NSData *DKScreenshotPNG(UIWindow *targetWindow) {
     if (!targetWindow) return NSData.data;

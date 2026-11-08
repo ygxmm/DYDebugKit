@@ -6,10 +6,7 @@
     <dict>
         <key>Bundles</key>
         <array>
-            <string>com.ss.iphone.ugc.Aweme</string>
-            <string>com.apple.mobilenotes</string>
-            <string>com.apple.mobilesafari</string>
-            <string>com.apple.Preferences</string>
+            <string>com.apple.UIKit</string>
         </array>
     </dict>
 </dict>
