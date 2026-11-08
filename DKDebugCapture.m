@@ -456,18 +456,26 @@ static NSString *DKCaptureTabBarProbe(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# TabBar probe (generic)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
+
     NSMutableArray<UIView *> *tabBars = [NSMutableArray array];
     NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:window];
     while (queue.count) {
         UIView *v = queue.firstObject;
         [queue removeObjectAtIndex:0];
         NSString *cls = NSStringFromClass([v class]);
-        BOOL isTabBar = [v isKindOfClass:[UITabBar class]]
-                     || ([cls containsString:@"TabBar"] && ![cls containsString:@"Controller"]);
-        if (isTabBar) [tabBars addObject:v];
+        BOOL isRootTabBar = [v isKindOfClass:[UITabBar class]]
+                         || [cls hasSuffix:@"TabBar"];
+        if (isRootTabBar) {
+            [tabBars addObject:v];
+            continue; // 找到根后不再深入，避免子树被反复打印
+        }
         [queue addObjectsFromArray:v.subviews];
     }
-    if (tabBars.count == 0) { [out appendString:@"(no TabBar in window)\n"]; return out; }
+
+    if (tabBars.count == 0) {
+        [out appendString:@"(no TabBar in window)\n"];
+        return out;
+    }
     for (UIView *bar in tabBars) {
         [out appendString:@"\n=== TabBar ===\n"];
         DKAppendViewNode(bar, out, 0);
