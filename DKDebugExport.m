@@ -180,187 +180,47 @@ static NSString *DKModeName(DKDebugExportMode mode) {
 #pragma mark - README
 
 static NSString *DKReadme(DKDebugExportContext *context, DKDebugExportMode mode) {
+    NSDictionary *meta = context.metadata;
     NSMutableString *text = [NSMutableString string];
-    [text appendString:@"DYKiller Debug Export\n"];
-    [text appendFormat:@"Generated: %@\n", context.metadata[@"generatedAt"] ?: @""];
-    [text appendFormat:@"tzyhb: %@\n", DK_VERSION];
-    [text appendFormat:@"Bundle: %@\n", context.metadata[@"bundleIdentifier"] ?: @""];
-    [text appendFormat:@"App: %@ %@ (%@)\n",
-     context.metadata[@"bundleName"] ?: @"", context.metadata[@"appVersion"] ?: @"",
-     context.metadata[@"buildVersion"] ?: @""];
-    [text appendFormat:@"System: %@ %@\n", context.metadata[@"systemName"] ?: @"",
-     context.metadata[@"systemVersion"] ?: @""];
-    [text appendFormat:@"Mode: %@\n\n", DKModeName(mode)];
+    
+    [text appendFormat:@"DYKiller Runtime Snapshot\n"];
+    [text appendFormat:@"App: %@ %@ (%@) | System: %@ %@ | Time: %@\n\n",
+        meta[@"bundleName"] ?: @"UnknownApp", meta[@"appVersion"], meta[@"buildVersion"], meta[@"deviceModel"], meta[@"systemVersion"], meta[@"generatedAt"]];
 
-    if (mode == DKDebugExportModeAllClasses) {
-        [text appendString:@"Contents:\n"];
-        [text appendString:@"- classes/          全部 ObjC 类头文件（按所属二进制分目录）\n"];
-        [text appendString:@"- page/             本页 UI 主线程快照与本页类\n"];
-        [text appendString:@"- probe/tabbar.txt  底栏现场\n"];
-        [text appendString:@"- ui/screenshot.png 目标窗口截图\n"];
-    } else if (mode == DKDebugExportModeAudio) {
-        DKAudioProbeCapture *capture = context.audioCapture;
-        [text appendString:@"Contents:\n"];
-        [text appendString:@"- audio/session.json        采样前后的 AVAudioSession 快照\n"];
-        [text appendString:@"- audio/backends.json       输出单元/队列登记表与只读旁路状态\n"];
-        [text appendString:@"- audio/timeline.jsonl      实时层与 AVFoundation 事件时间线\n"];
-        [text appendString:@"- audio/signal.jsonl        30 Hz 的 RMS/峰值/频谱带时间序列\n"];
-        [text appendString:@"- audio/media-snapshots.json 0/2.5/5 秒的播放状态\n"];
-        [text appendString:@"- audio/glass-target.json   玻璃底栏几何\n"];
-        [text appendString:@"- audio/diagnostics.json    符号覆盖、丢帧与自检结果\n"];
-        [text appendString:@"- audio/pcm/                单声道 Float32 WAV 与各自的格式统计\n"];
-        [text appendString:@"- probe/tabbar.txt          底栏现场\n- ui/screenshot.png\n\n"];
-        [text appendFormat:@"采样阶段固定为 %ld 秒稳定、%ld 秒 PCM、%ld 秒收尾。探针不会改变播放状态。\n",
-         (long)DKAudioProbeWarmupSeconds, (long)DKAudioProbeRecordSeconds,
-         (long)(DKAudioProbeTotalSeconds - DKAudioProbeWarmupSeconds - DKAudioProbeRecordSeconds)];
-        [text appendFormat:@"用户标记: %@\n实际推断: %@\n", capture.declaredState ?: @"unknown",
-         capture.actualState ?: @"unknown"];
-    } else {
-        [text appendString:@"Contents:\n- page/: UI 主线程快照与本页类\n"];
-        [text appendString:@"- probe/tabbar.txt: 占位（tabbar 采集已回滚，见 README 第六节）\n- ui/: 目标窗口截图\n"];
-    }
-        // DK_README_DETAIL: 每次导出自动附带的文件级说明
-    [text appendString:
-        @"\n"
-        "============================================================\n"
-        "以下为文件级说明（给 AI / 人直接读取，以 page 模式为主）\n"
-        "============================================================\n"
-        "\n"
-        "一、目录结构\n"
-        "------------\n"
-        "manifest.json              采集元数据 + 完整性自检\n"
-        "page/\n"
-        "  classes/*.h              运行时按需 dump 的头文件；选「② 导出全部 ClassDump」时为整个二进制全部类\n"
-        "  view-controllers.txt     VC 树文本\n"
-        "  view-tree.json           视图树 JSON\n"
-        "  interactives.txt         可点击元素：UIControl / 手势 view，含 target-action\n"
-        "  texts.txt                所有文字：UILabel/YYLabel/DUXBaseLabel/UIButton title 等\n"
-        "  images.txt               所有 UIImageView：尺寸/帧数/scale/identifier\n"
-        "  responders.txt           可交互元素的响应链：view > cell > VC > window\n"
-        "probe/\n"
-        "  tabbar.txt               tabbar 现场（含 Summary 诊断信息，见第六节）\n"
-        "  audio-summary.txt        音频摘要\n"
-        "ui/\n"
-        "  screenshot.png           目标窗口截图\n"
-        "\n"
-        "二、manifest.json 关键字段\n"
-        "--------------------------\n"
-        "device.appVersion / buildVersion   目标 App 版本\n"
-        "device.generatedAt                 采集时间\n"
-        "device.deviceModel / systemVersion 设备与系统\n"
-        "device.screenBounds                屏幕尺寸\n"
-        "device.targetWindow                目标窗口：class/frame/level/keyWindow/rootVC\n"
-        "device.tapPointInTargetWindow      触发探针的点击点\n"
-        "integrity.complete                 1=完整，0=有缺\n"
-        "integrity.truncated                是否被截断\n"
-        "integrity.droppedFiles             丢弃文件数\n"
-        "integrity.errorCount / errors      错误列表\n"
-        "integrity.fileCount / fileLimit    文件数 / 上限\n"
-        "mode                               \"page\" / \"all-classes\" / \"audio\"\n"
-        "schemaVersion                      \"dykiller.debug.v2\"\n"
-        "\n"
-        "注意：\n"
-        "- targetWindow 若是 DYKillerOverlayWindow，说明采集时拿的是自己的浮层，\n"
-        "  不是目标 App keyWindow，tabbar/截图可能不准。\n"
-        "- tapPointInTargetWindow 为 {0,0} 说明没有有效点击目标。\n"
-        "\n"
-        "三之补、page/*.txt 各文件说明（DK_README_NEW_FILES）\n"
-        "----------------------------------------------------\n"
-        "interactives.txt：每个可点击元素一行，格式\n"
-        "  Class frame=... hidden=N enabled=Y/N id=... label=... title=... targets=Target:selector gestures=Gesture{Target:selector}\n"
-        "  只看 targets 列就能找到按钮点击后调哪个方法\n"
-        "\n"
-        "texts.txt：每个带文字的 view 一行，格式\n"
-        "  Class frame=... text=...\n"
-        "  覆盖原生 UILabel 和自定义 Label（YYLabel/DUXBaseLabel/AWEUserNameLabel/TTTAttributedLabel 等）\n"
-        "  长文本截断到 200 字符，换行转义为 \\n\n"
-        "images.txt：每个 UIImageView 一行，格式\n"
-        "  Class frame=... hidden=N image={W,H} frames=N scale=N id=... label=...\n"
-        "  frames=0 表示静态图，frames>1 表示 GIF/序列帧动画\n"
-        "\n"
-        "responders.txt：每个可交互元素一行，格式\n"
-        "  Class frame=... chain=View > Superview > ... > VC > Window\n"
-        "  看 chain 列就能知道按钮点击后事件传到哪个 VC\n"
-        "\n"
-        "所有 page/*.txt 缩进最大 8 层（16 空格），层深超过 8 的不再缩进\n"
-        "\n"
-        "三、page/classes/*.h\n"
-        "--------------------\n"
-        "运行时按需 dump 的头文件，只含当前页面链路出现过的类，不在链路就没有。\n"
-        "文件头三行：\n"
-        "  // Dumped by DYKiller DKClassDump\n"
-        "  // Bundle: <目标 BundleID>\n"
-        "  // Image: <目标 Image>\n"
-        "结构：@interface 类名 : 父类 <协议列表> { ivar } 属性 方法 @end，\n"
-        "可能内联 @protocol（会多出多个 @end，正常）。\n"
-        "\n"
-        "类型保真度（AI 必读）：\n"
-        "  保留：属性名、读写性、内存修饰、多数具体类名、\n"
-        "        UIView<Protocol> / UITableViewCell<Protocol> 的协议、\n"
-        "        id<Protocol> 的协议（已修，DK_PROTO_FALLBACK）\n"
-        "  退化：方法返回/参数类型多为 id（runtime 限制，classdump 一样）\n"
-        "        block 属性为 id /* block */（@? 已识别；@?<...> 可还原 ret (^)(args)）\n"
-        "        @class / @protocol 前向声明已生成（自 a11a145 起）\n"
-        "        NSObject 属性混入子类（hash/superclass/description/debugDescription）\n"
-        "  使用：\n"
-        "    查方法名 → 可信\n"
-        "    查参数具体类型 → 不可信，runtime 和 classdump 都只能给 id\n"
-        "    #import 整份 → 大部分已可，极少数系统框架类仍缺，缺了补 #import\n"
-        "    hook → NSClassFromString + class_getInstanceMethod，不依赖头文件\n"
-        "\n"
-        "四、page/view-controllers.txt\n"
-        "-----------------------------\n"
-        "每行一个 VC：缩进 类名 指针 viewLoaded=YES/NO view=视图类 指针 frame=...\n"
-        "子行 nav.top= / nav.visible= / tab.selected= / presented:\n"
-        "用途：看页面层级、前台 VC、frame 是否正常（0/NaN 说明布局没完成）。\n"
-        "\n"
-        "五、page/view-tree.json\n"
-        "-----------------------\n"
-        "视图树 JSON，节点含 class/frame/子节点。用途：精确查某 view 的类名/层级/frame。\n"
-        "\n"
-        "六、probe/tabbar.txt 与 probes 机制\n"
-        "------------------------------------\n"
-        "这是一个通用探针，不依赖任何 App 专属类名。\n"
-        "内置的 tabbar 探针会自动提取底栏的所有按钮、frame、hidden 状态。\n"
-        "头部有 === Summary === 段，直接给出了 total/visible/hidden 数量、\n"
-        "坐标是否重叠 (visible_overlaps)、总宽度是否铺满。\n"
-        "非常适合直接喂给 AI 分析布局问题。\n"
-        "真采集需改 DKDebugCapture.m 遍历 tabbar 并赋值。\n"
-        "\n"
-        "七、probe/audio-summary.txt\n"
-        "---------------------------\n"
-        "音频摘要（capture.summaryText）。用途：看当前音频/播放状态摘要。\n"
-        "\n"
-        "八、ui/screenshot.png\n"
-        "---------------------\n"
-        "目标窗口截图，按 windowLevel 从低到高合成，尽量等于用户所见。\n"
-        "若 targetWindow 是 DYKillerOverlayWindow，截图可能含浮层或不是目标 App 画面。\n"
-        "\n"
-        "九、AI 使用顺序\n"
-        "---------------\n"
-        "1. manifest.json → 确认版本、时间、完整性、targetWindow 是否正常\n"
-        "2. page/view-controllers.txt → 找目标 VC 及 frame\n"
-        "3. page/classes/<目标类>.h → 看属性/方法名\n"
-        "4. page/view-tree.json → 定位具体子视图\n"
-        "5. 查参数具体类型 → runtime 和 classdump 都只能给 id，需看源码或 dSYM\n"
-        "6. classdump1 里没有的类 → 探针菜单选「② 导出全部 ClassDump」\n"
-        "   （mode=all-classes，读整个二进制的 __objc_classlist）\n"
-        "7. probe/*.txt 为真实探针数据，重点看 tabbar.txt 的 Summary 段\n"
-        "\n"
-        "十、常见坑\n"
-        "----------\n"
-        "- 目标类不在 page/classes/ → 本次链路没出现，重进对应页面再导\n"
-        "- 属性是裸 id → 可能是 block，或源码真裸 id，不是协议丢失\n"
-        "- 文件里多个 @end → 内联 @protocol，正常\n"
-        "- 协议列表有重复 → 二进制真实状态，探针与 classdump 都这样\n"
-        "- #import 整份 .h 报错 → 前向声明已生成，若仍报错则是缺系统框架，补 #import 即可\n"
-        "- classdump1 搜不到的类 → 探针菜单「② 导出全部 ClassDump」，覆盖整个二进制\n"
-    ];
-return text;
+    [text appendString:@"============================================================\n"];
+    [text appendString:@"文件说明 (Data Dictionary)\n"];
+    [text appendString:@"============================================================\n\n"];
+
+    [text appendString:@"[manifest.json]\n"];
+    [text appendString:@"- 采集元数据。包含 App 版本、系统版本、屏幕尺寸、目标窗口信息。\n\n"];
+
+    [text appendString:@"[page/] UI 主线程快照与本页类\n"];
+    [text appendString:@"- view-tree.txt       视图树文本，带层级缩进，含 Class、frame、hidden、alpha。\n"];
+    [text appendString:@"- view-tree.json      同上，但为 JSON 格式，适合程序解析。\n"];
+    [text appendString:@"- view-controllers.txt VC 树（含 nav.top / tab.selected）。\n"];
+    [text appendString:@"- interactives.txt    可点击元素（UIControl / 手势），含 Target-Action。\n"];
+    [text appendString:@"- texts.txt           页面上的所有文字（UILabel/YYLabel/Button title 等）。\n"];
+    [text appendString:@"- images.txt          所有 UIImageView，含尺寸、帧数、scale。\n"];
+    [text appendString:@"- responders.txt      可交互元素的响应链（view -> VC -> window）。\n"];
+    [text appendString:@"- classes/*.h         运行时 dump 的 Objective-C 头文件。\n"];
+    [text appendString:@"  * 注：仅 dump 了当前页面链路出现过的类。\n"];
+    [text appendString:@"  * 注：方法参数类型多为 id（Runtime 限制），属性名和类名可信。\n\n"];
+
+    [text appendString:@"[probe/] 专项探针数据\n"];
+    [text appendString:@"- tabbar.txt          底栏（TabBar）现场。\n"];
+    [text appendString:@"  * === Summary === 段：包含可见/隐藏数量、坐标是否重叠 (visible_overlaps)、总宽。\n"];
+    [text appendString:@"  * === TabBar === 段：具体视图层级、按钮名称 (label)、frame。\n\n"];
+
+    [text appendString:@"[ui/] 视觉辅助\n"];
+    [text appendString:@"- screenshot.png      目标窗口的截图（按 windowLevel 从低到高合成）。\n\n"];
+
+    [text appendString:@"[常见排查场景]\n"];
+    [text appendString:@"- 按钮不见了：看 view-tree.txt 或 tabbar.txt 里的 hidden 字段。\n"];
+    [text appendString:@"- 按钮点不动：看 interactives.txt 里的 targets 列。\n"];
+    [text appendString:@"- 布局错乱：看 tabbar.txt 的 Summary，检查 visible_overlaps 和 frame 值。\n"];
+
+    return text;
 }
-
-#pragma mark - 页面内容
-
 static void DKWritePageClasses(DKExportSink *sink, NSArray<NSString *> *classNames) {
     for (NSString *name in [classNames sortedArrayUsingSelector:@selector(compare:)]) {
         @autoreleasepool {
