@@ -484,7 +484,8 @@ static NSString *DKTabBarSummaryText(UIView *bar) {
         NSString *cls = NSStringFromClass([sub class]);
         BOOL isBtn = [cls containsString:@"GeneralButton"]
                   || [cls containsString:@"PlusInnerButton"]
-                  || [cls isEqualToString:@"UITabBarButton"];
+                  || [cls isEqualToString:@"UITabBarButton"]
+                  || ([cls isEqualToString:@"UIButton"] && sub.bounds.size.width > 50);
         if (!isBtn) continue;
 
         NSString *label = DKTabBarLabel(sub);
