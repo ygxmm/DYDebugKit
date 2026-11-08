@@ -31,11 +31,15 @@
 @property (nonatomic, copy) NSString *respondersText;    // DK_FEATURE_RESPONDERS
 /// 主线程生成的探针文本（probe/tabbar.txt）；后台导出只落盘，不再读 UIKit。
 @property (nonatomic, copy) NSString *probeText;
+@property (nonatomic, strong) NSDictionary<NSString *, NSString *> *probes;
 /// 音频专项模式的五秒采样产物；普通页面/全类导出时为 nil。
 @property (nonatomic, strong) DKAudioProbeCapture *audioCapture;
 @property (nonatomic, weak) UIView *sourceView;
 @property (nonatomic, weak) UIViewController *presenter;
 @end
+
+typedef NSString * _Nullable (^DKProbeBlock)(UIWindow * _Nullable window);
+FOUNDATION_EXPORT void DKRegisterProbe(NSString *name, DKProbeBlock block);
 
 #ifdef __cplusplus
 extern "C" {

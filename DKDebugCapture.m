@@ -408,6 +408,82 @@ static NSData *DKScreenshotPNG(UIWindow *targetWindow) {
     return image ? UIImagePNGRepresentation(image) : NSData.data;
 }
 
+#pragma mark - 通用探针框架
+
+static NSMutableDictionary<NSString *, DKProbeBlock> *gProbeBlocks = nil;
+static NSMutableArray<NSString *> *gProbeOrder = nil;
+
+void DKRegisterProbe(NSString *name, DKProbeBlock block) {
+    if (!name.length || !block) return;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        gProbeBlocks = [NSMutableDictionary dictionary];
+        gProbeOrder = [NSMutableArray array];
+    });
+    if (!gProbeBlocks[name]) [gProbeOrder addObject:name];
+    gProbeBlocks[name] = [block copy];
+}
+
+static NSDictionary<NSString *, NSString *> *DKRunAllProbes(UIWindow *window) {
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    for (NSString *name in gProbeOrder) {
+        @try {
+            NSString *text = gProbeBlocks[name](window);
+            if (text.length) result[name] = text;
+        } @catch (NSException *e) {
+            result[name] = [NSString stringWithFormat:@"# probe '%@' threw: %@\n", name, e.reason];
+        }
+    }
+    return result;
+}
+
+static void DKAppendViewNode(UIView *v, NSMutableString *out, NSUInteger depth) {
+    if (!v) return;
+    NSMutableString *indent = [NSMutableString string];
+    for (NSUInteger i = 0; i < MIN(depth, 8); i++) [indent appendString:@"  "];
+    [out appendFormat:@"%@%@ frame=%@ hidden=%d alpha=%.2f user=%d\n",
+     indent, NSStringFromClass([v class]), NSStringFromCGRect(v.frame),
+     (int)v.hidden, v.alpha, (int)v.userInteractionEnabled];
+    if ([v isKindOfClass:[UIButton class]]) {
+        UIButton *b = (UIButton *)v;
+        [out appendFormat:@"%@  title=%@ enabled=%d selected=%d\n",
+         indent, b.currentTitle ?: @"", b.enabled, b.selected];
+    }
+    for (UIView *sub in v.subviews) DKAppendViewNode(sub, out, depth + 1);
+}
+
+static NSString *DKCaptureTabBarProbe(UIWindow *window) {
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"# TabBar probe (generic)\n"];
+    if (!window) { [out appendString:@"(no window)\n"]; return out; }
+    NSMutableArray<UIView *> *tabBars = [NSMutableArray array];
+    NSMutableArray<UIView *> *queue = [NSMutableArray arrayWithObject:window];
+    while (queue.count) {
+        UIView *v = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        NSString *cls = NSStringFromClass([v class]);
+        BOOL isTabBar = [v isKindOfClass:[UITabBar class]]
+                     || ([cls containsString:@"TabBar"] && ![cls containsString:@"Controller"]);
+        if (isTabBar) [tabBars addObject:v];
+        [queue addObjectsFromArray:v.subviews];
+    }
+    if (tabBars.count == 0) { [out appendString:@"(no TabBar in window)\n"]; return out; }
+    for (UIView *bar in tabBars) {
+        [out appendString:@"\n=== TabBar ===\n"];
+        DKAppendViewNode(bar, out, 0);
+    }
+    return out;
+}
+
+static void DKRegisterBuiltinProbes(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        DKRegisterProbe(@"tabbar", ^NSString *(UIWindow *window) {
+            return DKCaptureTabBarProbe(window);
+        });
+    });
+}
+
 #pragma mark - 页面类收集
 
 // 收集一个类及其整条继承链的类名：跳过运行时生成子类噪声，但继续上溯 → 自动收到真实基类。
@@ -547,6 +623,9 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
     context.textsText = DKCaptureTextsText(targetWindow);              // DK_FEATURE_TEXTS
     context.imagesText = DKCaptureImagesText(targetWindow);                // DK_FEATURE_IMAGES
     context.respondersText = DKCaptureRespondersText(targetWindow);        // DK_FEATURE_RESPONDERS
+    DKRegisterBuiltinProbes();
+    context.probes = DKRunAllProbes(targetWindow);
+    context.probeText = context.probes[@"tabbar"] ?: @"";
     context.sourceView = targetWindow;
     context.presenter = DKDebugTopPresenter(targetWindow);
     return context;

@@ -71,7 +71,14 @@ static NSString *DKSafeFileName(NSString *name) {
     if (!name.length) return @"Unknown";
     NSCharacterSet *bad = [NSCharacterSet characterSetWithCharactersInString:@"/\\?%*|\"<>:"];
     NSString *safe = [[name componentsSeparatedByCharactersInSet:bad] componentsJoinedByString:@"_"];
-    return safe.length ? safe : @"Unknown";
+    if (!safe.length) return @"Unknown";
+    // DK_FILENAME_LEN: APFS 单文件名 255 字节上限，超长时截断 + hash 后缀
+    if (safe.length > 200) {
+        NSUInteger h = (NSUInteger)safe.hash;
+        safe = [NSString stringWithFormat:@"%@_%08lx",
+                [safe substringToIndex:190], (unsigned long)h];
+    }
+    return safe;
 }
 
 static NSString *DKImageNameForClass(Class cls) {
@@ -607,8 +614,20 @@ DKDebugExportResult *DKDebugCreateExport(DKDebugExportContext *context,
     DKExportSink *sink = [[DKExportSink alloc] initWithRootDir:rootDir];
     DKWriteString(sink, @"README.txt", DKReadme(context, mode), mode == DKDebugExportModeAudio);
     DKWriteData(sink, @"ui/screenshot.png", context.screenshotPNG, NO);
-    NSString *tabbarText = context.probeText.length ? context.probeText : @"tabbar not captured: probeText is empty\n"; // DK_TABBAR_FALLBACK
-    DKWriteString(sink, @"probe/tabbar.txt", tabbarText, NO);
+    {
+        NSDictionary<NSString *, NSString *> *probes = context.probes;
+        if (probes.count == 0 && context.probeText.length) {
+            probes = @{@"tabbar": context.probeText};
+        }
+        if (probes.count == 0) {
+            DKWriteString(sink, @"probe/README.txt", @"no probes ran; check DKRegisterBuiltinProbes()\n", NO);
+        } else {
+            for (NSString *name in probes) {
+                NSString *path = [NSString stringWithFormat:@"probe/%@.txt", name];
+                DKWriteString(sink, path, probes[name], NO);
+            }
+        }
+    }
 
     if (mode == DKDebugExportModeAudio) {
         DKWriteAudioFiles(sink, context.audioCapture, progress);
