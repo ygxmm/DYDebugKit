@@ -454,12 +454,20 @@ static void DKAppendViewNode(UIView *v, NSMutableString *out, NSUInteger depth) 
     [out appendFormat:@"%@%@ frame=%@ hidden=%d alpha=%.2f user=%d\n",
      indent, NSStringFromClass([v class]), NSStringFromCGRect(v.frame),
      (int)v.hidden, v.alpha, (int)v.userInteractionEnabled];
+    if ([v isKindOfClass:[UILabel class]]) {
+        UILabel *lbl = (UILabel *)v;
+        if (lbl.text.length > 0) {
+            [out appendFormat:@"%@  text=%@\n", indent, lbl.text];
+        }
+    }
     if ([v isKindOfClass:[UIButton class]]) {
         UIButton *b = (UIButton *)v;
         NSString *label = v.accessibilityLabel ?: @"";
         NSString *ident = v.accessibilityIdentifier ?: @"";
+        NSString *title = b.currentTitle ?: @"";
+        if (label.length == 0) label = title;
         [out appendFormat:@"%@  title=%@ label=%@ id=%@ enabled=%d selected=%d\n",
-         indent, b.currentTitle ?: @"", label, ident, b.enabled, b.selected];
+         indent, title, label, ident, b.enabled, b.selected];
     }
     for (UIView *sub in v.subviews) DKAppendViewNode(sub, out, depth + 1);
 }
@@ -468,6 +476,18 @@ static NSString *DKTabBarLabel(UIView *v) {
     NSString *cls = NSStringFromClass([v class]);
     NSString *label = v.accessibilityLabel ?: @"";
     if (label.length == 0 && [cls containsString:@"Plus"]) label = @"+";
+    
+    // 深入子视图找 UILabel 或 UIButton 的 title
+    if (label.length == 0) {
+        for (UIView *sub in v.subviews) {
+            if ([sub isKindOfClass:[UILabel class]] && ((UILabel *)sub).text.length > 0) {
+                label = ((UILabel *)sub).text; break;
+            }
+            if ([sub isKindOfClass:[UIButton class]] && ((UIButton *)sub).currentTitle.length > 0) {
+                label = ((UIButton *)sub).currentTitle; break;
+            }
+        }
+    }
     if (label.length == 0) label = cls;
     return label;
 }
@@ -489,7 +509,12 @@ static NSString *DKTabBarSummaryText(UIView *bar) {
         if (!isBtn) continue;
 
         NSString *label = DKTabBarLabel(sub);
-        NSString *item = [NSString stringWithFormat:@"%@%@", label, NSStringFromCGRect(sub.frame)];
+        // 如果坐标 x 是 0 但是是内部 item，尽量用父类的 x
+        CGRect rect = sub.frame;
+        if (rect.origin.x == 0 && sub.superview != bar) {
+            rect.origin.x = sub.superview.frame.origin.x;
+        }
+        NSString *item = [NSString stringWithFormat:@"%@%s", label, NSStringFromCGRect(rect).UTF8String];
         if (sub.hidden) {
             [hiddenItems addObject:item];
         } else {
