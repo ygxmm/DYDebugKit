@@ -437,8 +437,18 @@ static NSDictionary<NSString *, NSString *> *DKRunAllProbes(UIWindow *window) {
     return result;
 }
 
+static BOOL DKIsDecorativeView(UIView *v) {
+    NSString *cls = NSStringFromClass([v class]);
+    return [cls isEqualToString:@"_UIBarBackground"]
+        || [cls hasPrefix:@"AWETabBarSkin"]
+        || [cls containsString:@"BlurView"]
+        || [cls containsString:@"TransitionBackground"]
+        || [cls isEqualToString:@"UIImageView"];
+}
+
 static void DKAppendViewNode(UIView *v, NSMutableString *out, NSUInteger depth) {
     if (!v) return;
+    if (DKIsDecorativeView(v)) return;
     NSMutableString *indent = [NSMutableString string];
     for (NSUInteger i = 0; i < MIN(depth, 8); i++) [indent appendString:@"  "];
     [out appendFormat:@"%@%@ frame=%@ hidden=%d alpha=%.2f user=%d\n",
@@ -446,8 +456,10 @@ static void DKAppendViewNode(UIView *v, NSMutableString *out, NSUInteger depth) 
      (int)v.hidden, v.alpha, (int)v.userInteractionEnabled];
     if ([v isKindOfClass:[UIButton class]]) {
         UIButton *b = (UIButton *)v;
-        [out appendFormat:@"%@  title=%@ enabled=%d selected=%d\n",
-         indent, b.currentTitle ?: @"", b.enabled, b.selected];
+        NSString *label = v.accessibilityLabel ?: @"";
+        NSString *ident = v.accessibilityIdentifier ?: @"";
+        [out appendFormat:@"%@  title=%@ label=%@ id=%@ enabled=%d selected=%d\n",
+         indent, b.currentTitle ?: @"", label, ident, b.enabled, b.selected];
     }
     for (UIView *sub in v.subviews) DKAppendViewNode(sub, out, depth + 1);
 }
