@@ -305,131 +305,31 @@ DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
 #pragma mark - 全部类导出
 
 static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *text)) {
-    if (progress) progress(@"读取运行时类列表...");
-    int count = objc_getClassList(NULL, 0);
-    if (progress) progress([NSString stringWithFormat:@"运行时共 %d 个类，开始写入...", count]);
-    if (count <= 0) return;
-    Class *classes = (Class *)malloc(sizeof(Class) * (size_t)count);
-    if (!classes) return;
-    int actual = objc_getClassList(classes, count);
-    if (actual < count) count = actual;
-
-    NSMutableSet<NSString *> *seen = [NSMutableSet setWithCapacity:(NSUInteger)count];
-    NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:(NSUInteger)count];
-    NSMutableDictionary<NSString *, NSString *> *futureImageMap = [NSMutableDictionary dictionary]; // DK_FUTURE_FIX
-    for (int i = 0; i < count; i++) {
-        @autoreleasepool {
-            Class cls = classes[i];
+    if (progress) progress(@"正在获取全量类...");
+    
+    // 1. 调用 MachO 和 Runtime 全量抓取 (拿到 NSValue* 数组)
+    extern NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
+    NSArray<NSValue *> *allClassValues = TZClassDumpAllClassesFromMachO();
+    
+    if (progress) progress([NSString stringWithFormat:@"共找到 %lu 个类，准备提取类名...", (unsigned long)allClassValues.count]);
+    
+    // 2. 将 NSValue* 转换为 NSString* 类名数组
+    NSMutableArray<NSString *> *allClassNames = [NSMutableArray arrayWithCapacity:allClassValues.count];
+    for (NSValue *val in allClassValues) {
+        Class cls = (__bridge Class)[val pointerValue];
+        if (cls) {
             NSString *name = NSStringFromClass(cls);
-            if (!name.length) continue;
-            if ([seen containsObject:name]) continue;
-            [seen addObject:name];
-            [names addObject:name];
+            if (name.length > 0) [allClassNames addObject:name];
         }
     }
-    free(classes);
-
-    // iOS 16+ future class 兜底：
-    //   objc_getClassList 只返回已注册的类。iOS 16 引入 objc_setFutureClass 机制，
-    //   二进制里定义的类在首次使用前不会注册，大型 App 会丢 40%+ 的类。
-    //   objc_copyClassNamesForImage 直接读 image 的 __objc_classlist 段，能看到全部类名。
-    if (progress) progress(@"补全 future class（iOS 16+）...");
-    {
-        uint32_t imgCount = _dyld_image_count();
-        NSUInteger futureAdded = 0;
-        for (uint32_t img = 0; img < imgCount; img++) {
-            @autoreleasepool {
-                const char *imgName = _dyld_get_image_name(img);
-                if (!imgName) continue;
-                unsigned int classCount = 0;
-                const char **classNames = objc_copyClassNamesForImage(imgName, &classCount);
-                if (!classNames) continue;
-                for (unsigned int i = 0; i < classCount; i++) {
-                    const char *cName = classNames[i];
-                    if (!cName) continue;
-                    NSString *name = [NSString stringWithUTF8String:cName];
-                    if (!name.length) continue;
-                    if ([seen containsObject:name]) continue;
-                    [seen addObject:name];
-                    [names addObject:name];
-                    NSString *imgBase = [[NSString stringWithUTF8String:imgName] lastPathComponent];
-                    imgBase = [imgBase stringByDeletingPathExtension];
-                    if (imgBase.length > 0) futureImageMap[name] = imgBase; // DK_FUTURE_FIX
-                    futureAdded++;
-                }
-                free(classNames);
-            }
-        }
-        if (progress) progress([NSString stringWithFormat:@"future class 补全 %lu 个，总计 %lu 个",
-                                (unsigned long)futureAdded, (unsigned long)names.count]);
-    }
-
-    if (progress) progress([NSString stringWithFormat:@"写入全部类头文件（%lu 个）...", (unsigned long)names.count]);
-    NSArray<NSString *> *sorted = [names sortedArrayUsingSelector:@selector(compare:)];
-    NSUInteger written = 0;
-    for (NSString *name in sorted) {
-        @autoreleasepool {
-            @try {
-                Class cls = NSClassFromString(name);
-                NSString *header = cls ? TZClassDumpHeaderForClass(cls) : nil;
-                NSString *imageName = nil;
-                if (!cls) {
-                    // DK_FUTURE_FIX: future class 未注册，用补全阶段记录的 imageName 输出空壳
-                    imageName = futureImageMap[name];
-                    if (!imageName.length) continue;
-                    if ([imageName isEqualToString:@"tzyhb"]) continue;
-                    header = [NSString stringWithFormat:
-                        @"//\n// Future class: %@\n// Image: %@\n"
-                        @"// 未在 objc runtime 注册（iOS 16+ future class），"
-                        @"无属性/方法信息\n//\n\n"
-                        @"#import <Foundation/Foundation.h>\n\n"
-                        @"@interface %@ : NSObject\n@end\n",
-                        name, imageName, name];
-                } else {
-                    if (!header.length) continue;
-                    imageName = DKImageNameForClass(cls);
-                    if (!imageName.length) continue;
-                    if ([imageName isEqualToString:@"tzyhb"]) continue;
-                }
-                NSString *relative = [@"classes" stringByAppendingPathComponent:
-                                      [imageName stringByAppendingPathComponent:
-                                       [DKSafeFileName(name) stringByAppendingString:@".h"]]];
-                DKWriteString(sink, relative, header, NO);
-
-                // 追加 category 头文件（边遍历边写，不累积）
-
-                written++;
-                if (progress && (written % 200) == 0) {
-                    double pct = names.count > 0 ? (written * 100.0 / (double)names.count) : 0.0;
-                    progress([NSString stringWithFormat:@"已导出 %lu / %lu（%.1f%%）",
-                              (unsigned long)written, (unsigned long)names.count, pct]);
-                }
-            } @catch (NSException *exception) {
-                DKRecordError(sink, name, @"all-class",
-                              DKMakeExportError(20, exception.reason ?: @"类头文件导出异常", nil), NO);
-            }
-        }
-    }
-    if (progress) progress([NSString stringWithFormat:@"全部类导出完成：%lu 个", (unsigned long)written]);
-
-    // ===== 静态解析 category（补充运行时拿不到的信息） =====
-    if (progress) progress(@"静态解析 category...");
-    NSString *binaryPath = NSBundle.mainBundle.executablePath;
-    if (binaryPath.length > 0) {
-        __block NSUInteger catCount = 0;
-        TZStaticDumpCategories(binaryPath, ^(NSString *className, NSString *categoryName, NSString *text) {
-            if (!className || !categoryName || !text) return;
-            NSString *safeClass = DKSafeFileName(className);
-            NSString *safeCat = DKSafeFileName(categoryName);
-            NSString *relative = [NSString stringWithFormat:@"classes/categories/%@+%@.h", safeClass, safeCat];
-            DKWriteString(sink, relative, text, NO);
-            catCount++;
-            if (progress && (catCount % 100) == 0) {
-                progress([NSString stringWithFormat:@"已解析 %lu 个 category...", (unsigned long)catCount]);
-            }
-        });
-        if (progress) progress([NSString stringWithFormat:@"category 解析完成：%lu 个", (unsigned long)catCount]);
-    }
+    
+    if (progress) progress([NSString stringWithFormat:@"正在分批写入 %lu 个类...", (unsigned long)allClassNames.count]);
+    
+    // 3. 丢给已经写好的分批合并导出函数
+    // 之前改过 DKWritePageClasses，如果数量 > 1000 会自动合并成 AllClasses_Part*.h
+    DKWritePageClasses(sink, allClassNames);
+    
+    if (progress) progress(@"全量 Class 导出完成");
 }
 
 #pragma mark - 音频内容
