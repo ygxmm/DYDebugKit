@@ -221,11 +221,10 @@ static NSString *DKReadme(TZDebugExportContext *context, TZDebugExportMode mode)
 
     return text;
 }
-static void DKWritePageClasses(DKExportSink *sink, NSArray<NSString *> *classNames) {
+static void DKWritePageClasses(DKExportSink *sink, NSArray<NSString *> *classNames, void (^progress)(NSString *text)) {
     if (!classNames || classNames.count == 0) return;
     NSArray *sortedNames = [classNames sortedArrayUsingSelector:@selector(compare:)];
     
-    // 如果类数量极大（all-classes模式），采用分批合并写入，防止写几万个文件卡死
     if (sortedNames.count > 1000) {
         NSUInteger batchSize = 2000;
         NSUInteger total = sortedNames.count;
@@ -234,7 +233,13 @@ static void DKWritePageClasses(DKExportSink *sink, NSArray<NSString *> *classNam
             NSUInteger length = MIN(batchSize, total - i);
             NSArray *batch = [sortedNames subarrayWithRange:NSMakeRange(i, length)];
             
-            NSMutableString *hugeStr = [NSMutableString stringWithCapacity:1024 * 1024 * 5]; // 预分配 5MB
+            // 实时更新进度条
+            if (progress) {
+                NSString *msg = [NSString stringWithFormat:@"解析全量类 %lu/%lu (%lu%%)", (unsigned long)i, (unsigned long)total, (unsigned long)(i * 100 / total)];
+                progress(msg);
+            }
+            
+            NSMutableString *hugeStr = [NSMutableString stringWithCapacity:1024 * 1024 * 5];
             [hugeStr appendFormat:@"// TZ Universal Class Dump - Part %lu\n\n", (unsigned long)(i/batchSize + 1)];
             
             for (NSString *name in batch) {
@@ -247,28 +252,30 @@ static void DKWritePageClasses(DKExportSink *sink, NSArray<NSString *> *classNam
                             [hugeStr appendString:@"\n\n"];
                         }
                     } @catch (NSException *exception) {
-                        DKRecordError(sink, name, @"page-class",
-                                      DKMakeExportError(20, exception.reason ?: @"类头文件导出异常", nil), NO);
+                        DKRecordError(sink, name, @"page-class", DKMakeExportError(20, exception.reason ?: @"类解析异常", nil), NO);
                     }
                 }
             }
             NSString *fileName = [NSString stringWithFormat:@"page/classes/AllClasses_Part%lu.h", (unsigned long)(i/batchSize + 1)];
             DKWriteString(sink, fileName, hugeStr, NO);
         }
+        if (progress) progress(@"全量类导出完成 (100%)");
     } else {
-        // 页面级导出，数量少，保持一个类一个文件
-        for (NSString *name in sortedNames) {
+        for (NSUInteger i = 0; i < sortedNames.count; i++) {
+            NSString *name = sortedNames[i];
+            if (progress) {
+                NSString *msg = [NSString stringWithFormat:@"解析页面类 %lu/%lu", (unsigned long)(i+1), (unsigned long)sortedNames.count];
+                progress(msg);
+            }
             @autoreleasepool {
                 @try {
                     Class cls = NSClassFromString(name);
                     NSString *header = cls ? TZClassDumpHeaderForClass(cls) : nil;
                     if (!header.length) continue;
-                    NSString *relative = [@"page/classes" stringByAppendingPathComponent:
-                                          [DKSafeFileName(name) stringByAppendingString:@".h"]];
+                    NSString *relative = [@"page/classes" stringByAppendingPathComponent:[DKSafeFileName(name) stringByAppendingString:@".h"]];
                     DKWriteString(sink, relative, header, NO);
                 } @catch (NSException *exception) {
-                    DKRecordError(sink, name, @"page-class",
-                                  DKMakeExportError(20, exception.reason ?: @"类头文件导出异常", nil), NO);
+                    DKRecordError(sink, name, @"page-class", DKMakeExportError(20, exception.reason ?: @"类解析异常", nil), NO);
                 }
             }
         }
@@ -299,37 +306,37 @@ DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
     DKWriteString(sink, @"page/images.txt", context.imagesText ?: @"(empty)\n", NO); // DK_FEATURE_IMAGES
     DKWriteString(sink, @"page/responders.txt", context.respondersText ?: @"(empty)\n", NO); // DK_FEATURE_RESPONDERS
     if (progress) progress(@"导出本页类头文件...");
-    DKWritePageClasses(sink, context.pageClassNames ?: @[]);
+    DKWritePageClasses(sink, context.pageClassNames ?: @[], progress);
 }
 
 #pragma mark - 全部类导出
 
 static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *text)) {
-    if (progress) progress(@"正在获取全量类...");
-    
-    // 1. 调用 MachO 和 Runtime 全量抓取 (拿到 NSValue* 数组)
-    extern NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
-    NSArray<NSValue *> *allClassValues = TZClassDumpAllClassesFromMachO();
-    
-    if (progress) progress([NSString stringWithFormat:@"共找到 %lu 个类，准备提取类名...", (unsigned long)allClassValues.count]);
-    
-    // 2. 将 NSValue* 转换为 NSString* 类名数组
-    NSMutableArray<NSString *> *allClassNames = [NSMutableArray arrayWithCapacity:allClassValues.count];
-    for (NSValue *val in allClassValues) {
-        Class cls = (__bridge Class)[val pointerValue];
-        if (cls) {
-            NSString *name = NSStringFromClass(cls);
-            if (name.length > 0) [allClassNames addObject:name];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        void (^updateProgress)(NSString *) = ^(NSString *msg) {
+            if (progress) {
+                dispatch_async(dispatch_get_main_queue(), ^{ progress(msg); });
+            }
+        };
+        
+        updateProgress(@"正在极速获取全量类...");
+        extern NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
+        NSArray<NSValue *> *allClassValues = TZClassDumpAllClassesFromMachO();
+        
+        updateProgress([NSString stringWithFormat:@"提取到 %lu 个类，正在准备解析...", (unsigned long)allClassValues.count]);
+        
+        NSMutableArray<NSString *> *allClassNames = [NSMutableArray arrayWithCapacity:allClassValues.count];
+        for (NSValue *val in allClassValues) {
+            Class cls = (__bridge Class)[val pointerValue];
+            if (cls) {
+                NSString *name = NSStringFromClass(cls);
+                if (name.length > 0) [allClassNames addObject:name];
+            }
         }
-    }
-    
-    if (progress) progress([NSString stringWithFormat:@"正在分批写入 %lu 个类...", (unsigned long)allClassNames.count]);
-    
-    // 3. 丢给已经写好的分批合并导出函数
-    // 之前改过 DKWritePageClasses，如果数量 > 1000 会自动合并成 AllClasses_Part*.h
-    DKWritePageClasses(sink, allClassNames);
-    
-    if (progress) progress(@"全量 Class 导出完成");
+        
+        // 将 updateProgress 传进去，实现实时进度
+        DKWritePageClasses(sink, allClassNames, updateProgress);
+    });
 }
 
 #pragma mark - 音频内容
