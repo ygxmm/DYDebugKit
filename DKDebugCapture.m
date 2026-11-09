@@ -562,8 +562,10 @@ static NSString *DKTabBarSummaryText(UIView *bar) {
 
 #pragma mark - 内置探针：全局异常扫描 (Anomalies)
 
-static void DKCollectAnomaliesFromView(UIView *v, NSMutableString *out, CGRect windowRect) {
+static void DKCollectAnomaliesFromView(UIView *v, NSMutableString *out, CGRect windowRect, NSMutableSet *seen) {
     if (!v || v.hidden || v.alpha < 0.05) return;
+    if ([seen containsObject:[NSValue valueWithPointer:(__bridge const void *)v]]) return;
+    [seen addObject:[NSValue valueWithPointer:(__bridge const void *)v]];
     
     CGRect rectInWindow = [v convertRect:v.bounds toView:nil];
     BOOL isZeroSize = (v.bounds.size.width == 0 || v.bounds.size.height == 0);
@@ -589,7 +591,7 @@ static void DKCollectAnomaliesFromView(UIView *v, NSMutableString *out, CGRect w
     }
     
     for (UIView *sub in v.subviews) {
-        DKCollectAnomaliesFromView(sub, out, windowRect);
+        DKCollectAnomaliesFromView(sub, out, windowRect, seen);
     }
 }
 
@@ -599,7 +601,8 @@ static NSString *DKCaptureAnomaliesProbe(UIWindow *window) {
     [out appendString:@"# 自动扫描：尺寸为0的交互、完全越界(不在屏幕上)的视图\n\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
     
-    DKCollectAnomaliesFromView(window, out, window.bounds);
+    NSMutableSet *seen = [NSMutableSet set];
+    DKCollectAnomaliesFromView(window, out, window.bounds, seen);
     if (out.length < 80) {
         [out appendString:@"(No obvious anomalies detected)\n"];
     }
