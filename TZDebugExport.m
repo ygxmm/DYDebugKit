@@ -312,34 +312,25 @@ DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
 #pragma mark - 全部类导出
 
 static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *text)) {
-    // 关键修复：在异步块中使用 __block 强引用 sink，防止其被过早释放
-    __block DKExportSink *strongSink = sink;
+    // 1. 彻底改回同步执行，保证外层 zip 不会被提前关闭
+    if (progress) progress(@"正在极速获取全量类...");
     
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-        void (^updateProgress)(NSString *) = ^(NSString *msg) {
-            if (progress) {
-                dispatch_async(dispatch_get_main_queue(), ^{ progress(msg); });
-            }
-        };
-
-        updateProgress(@"正在极速获取全量类...");
-        extern NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
-        NSArray<NSValue *> *allClassValues = TZClassDumpAllClassesFromMachO();
-
-        updateProgress([NSString stringWithFormat:@"提取到 %lu 个唯一类，准备解析...", (unsigned long)allClassValues.count]);
-
-        NSMutableArray<NSString *> *allClassNames = [NSMutableArray arrayWithCapacity:allClassValues.count];
-        for (NSValue *val in allClassValues) {
-            Class cls = (__bridge Class)[val pointerValue];
-            if (cls) {
-                NSString *name = NSStringFromClass(cls);
-                if (name.length > 0) [allClassNames addObject:name];
-            }
+    extern NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
+    NSArray<NSValue *> *allClassValues = TZClassDumpAllClassesFromMachO();
+    
+    if (progress) progress([NSString stringWithFormat:@"提取到 %lu 个唯一类，准备解析...", (unsigned long)allClassValues.count]);
+    
+    NSMutableArray<NSString *> *allClassNames = [NSMutableArray arrayWithCapacity:allClassValues.count];
+    for (NSValue *val in allClassValues) {
+        Class cls = (__bridge Class)[val pointerValue];
+        if (cls) {
+            NSString *name = NSStringFromClass(cls);
+            if (name.length > 0) [allClassNames addObject:name];
         }
-
-        DKWritePageClasses(strongSink, allClassNames, updateProgress);
-        strongSink = nil; // 释放
-    });
+    }
+    
+    // 2. 同步调用解析并写入文件，DKWritePageClasses 内部已经做了分批和 try-catch
+    DKWritePageClasses(sink, allClassNames, progress);
 }
 
 #pragma mark - 音频内容
