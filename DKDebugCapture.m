@@ -322,12 +322,29 @@ static void DKAppendViewTreeText(UIView *view, NSUInteger depth, NSMutableString
         extra = [NSString stringWithFormat:@"label=\"%@\" ", view.accessibilityLabel];
     }
     
-    [out appendFormat:@"%@%@ %@ frame=%@ bounds=%@ vc=%@ %@ %@hidden=%d alpha=%.3f clips=%d user=%d layer=%@\n",
+    // 计算绝对坐标
+    NSString *absStr = @"";
+    if (view.window) {
+        CGRect absRect = [view convertRect:view.bounds toView:view.window];
+        absStr = [NSString stringWithFormat:@"abs=%@ ", NSStringFromCGRect(absRect)];
+    }
+    
+    // 检查是否被裁剪
+    BOOL isClipped = NO;
+    if (view.superview && view.superview.clipsToBounds) {
+        if (!CGRectContainsRect(view.superview.bounds, view.frame)) {
+            isClipped = YES;
+        }
+    }
+    NSString *clippedStr = isClipped ? @"[clipped] " : @"";
+
+    [out appendFormat:@"%@%@ %@ frame=%@ %@%@vc=%@ %@ %@hidden=%d alpha=%.3f clips=%d user=%d layer=%@\n",
      indent,
      DKClassName(view),
      DKStringFromPointer((__bridge const void *)view),
      NSStringFromCGRect(view.frame),
-     NSStringFromCGRect(view.bounds),
+     absStr,
+     clippedStr,
      vc ? DKClassName(vc) : @"",
      vc ? DKStringFromPointer((__bridge const void *)vc) : @"",
      extra,
