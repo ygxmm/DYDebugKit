@@ -1,10 +1,10 @@
 //
-// DKAudioProbe.h  —— 最小 stub，满足 DKDebugExport.m 类型依赖
+// TZAudioProbe.h  —— 最小 stub，满足 TZDebugExport.m 类型依赖
 // 音频功能禁用，所有属性返回 nil/空，音频档导出时产出空 JSON
 //
 #import <Foundation/Foundation.h>
 
-@interface DKAudioProbeCapture : NSObject
+@interface TZAudioProbeCapture : NSObject
 @property (nonatomic, copy) NSString *declaredState;
 @property (nonatomic, copy) NSString *actualState;
 @property (nonatomic, copy) NSString *summaryText;
@@ -18,6 +18,6 @@
 @property (nonatomic, strong) NSArray<NSDictionary *> *pcmFiles;
 @end
 
-extern const NSInteger DKAudioProbeWarmupSeconds;
-extern const NSInteger DKAudioProbeRecordSeconds;
-extern const NSInteger DKAudioProbeTotalSeconds;
+extern const NSInteger TZAudioProbeWarmupSeconds;
+extern const NSInteger TZAudioProbeRecordSeconds;
+extern const NSInteger TZAudioProbeTotalSeconds;

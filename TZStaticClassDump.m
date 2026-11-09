@@ -1,4 +1,4 @@
-// DKStaticClassDump.m - v4
+// TZStaticClassDump.m - v4
 // 修复：1) clsPtr 结构校验 2) chain handler 3) __objc_catlist2 兼容
 // 纯 ASCII 注释，避免编码问题
 
@@ -9,7 +9,7 @@
 #import <signal.h>
 #import <setjmp.h>
 #import <string.h>
-#import "DKStaticClassDump.h"
+#import "TZStaticClassDump.h"
 
 #pragma mark - Crash isolation
 
@@ -102,7 +102,7 @@ static BOOL DKAddressInAnyLoadedImage(uintptr_t addr, size_t minLen) {
     return NO;
 }
 
-static BOOL DKIsPrintableString(const char *p, size_t maxLen) {
+static BOOL TZIsPrintableString(const char *p, size_t maxLen) {
     if (!p) return NO;
     for (size_t i = 0; i < maxLen; i++) {
         unsigned char c = (unsigned char)p[i];
@@ -114,7 +114,7 @@ static BOOL DKIsPrintableString(const char *p, size_t maxLen) {
 
 #pragma mark - ObjC class structure validation
 
-static BOOL DKIsValidObjCClassPtr(uintptr_t clsPtr) {
+static BOOL TZIsValidObjCClassPtr(uintptr_t clsPtr) {
     if (clsPtr == 0 || (clsPtr & 0x7)) return NO;
     if (!DKAddressInAnyLoadedImage(clsPtr, 40)) return NO;
 
@@ -130,7 +130,7 @@ static BOOL DKIsValidObjCClassPtr(uintptr_t clsPtr) {
     const char *name = *(const char **)(dataPtr + 24);
     if (name == NULL) return NO;
     if (!DKAddressInAnyLoadedImage((uintptr_t)name, 1)) return NO;
-    if (!DKIsPrintableString(name, 512)) return NO;
+    if (!TZIsPrintableString(name, 512)) return NO;
     return YES;
 }
 
@@ -191,7 +191,7 @@ static void DKInitSELToClassMap(void) {
     DKScanLog("SEL map built: %lu entries (incl class methods)", (unsigned long)map.count);
 }
 
-static NSString *DKClassFromCategoryMethods(uintptr_t listAddr) {
+static NSString *TZClassFromCategoryMethods(uintptr_t listAddr) {
     if (!gSELToClassMap || listAddr == 0) return nil;
     if (!DKAddressInAnyLoadedImage(listAddr, 8)) return nil;
     uint32_t eFlags = *(uint32_t *)listAddr;
@@ -214,7 +214,7 @@ static NSString *DKClassFromCategoryMethods(uintptr_t listAddr) {
             np &= 0x0000FFFFFFFFFFFF;
             if (DKAddressInAnyLoadedImage(np, 1)) name = (const char *)np;
         }
-        if (!name || !DKIsPrintableString(name, 256)) continue;
+        if (!name || !TZIsPrintableString(name, 256)) continue;
         NSString *snStr = [NSString stringWithUTF8String:name];
         if (!snStr) continue;
         NSString *hit = gSELToClassMap[snStr];
@@ -337,7 +337,7 @@ static NSString *DKMethodListToDecls(uintptr_t listAddr, const char *sigil) {
             tp &= 0x0000FFFFFFFFFFFF;
             if (DKAddressInAnyLoadedImage(tp, 1)) types = (const char *)tp;
         }
-        if (!selName || !DKIsPrintableString(selName, 256)) continue;
+        if (!selName || !TZIsPrintableString(selName, 256)) continue;
         
         NSString *retType = @"void";
         if (types) retType = DKDecodeTypeEncoding(types, NULL);
@@ -465,7 +465,7 @@ static NSString *DKReadProtocols(uintptr_t protoListAddr) {
         protoPtr &= 0x0000FFFFFFFFFFFF;
         if (!DKAddressInAnyLoadedImage(protoPtr, 16)) continue;
         const char *pname = *(const char **)(protoPtr + 8);
-        if (!pname || !DKIsPrintableString(pname, 256)) continue;
+        if (!pname || !TZIsPrintableString(pname, 256)) continue;
         NSString *pn = [NSString stringWithUTF8String:pname];
         if (pn.length) [names addObject:pn];
     }
@@ -483,7 +483,7 @@ static BOOL DKReadClassNameFast(uintptr_t clsPtr, char *outBuf, size_t outBufLen
     const char *name = *(const char **)(ro + 24);
     if (name == NULL) return NO;
     if (!DKAddressInAnyLoadedImage((uintptr_t)name, 1)) return NO;
-    if (!DKIsPrintableString(name, 512)) return NO;
+    if (!TZIsPrintableString(name, 512)) return NO;
     size_t len = strlen(name);
     if (len >= outBufLen) len = outBufLen - 1;
     memcpy(outBuf, name, len); outBuf[len] = 0;
@@ -503,14 +503,14 @@ static void DKProcessCategory(uintptr_t catAddr,
     uintptr_t namePtr = DKStripPAC(fields[0]);
     if (namePtr == 0 || !DKAddressInSegments(namePtr, header, slide, 1)) { (*skipped)++; return; }
     const char *nameC = (const char *)namePtr;
-    if (!DKIsPrintableString(nameC, 256)) { (*skipped)++; return; }
+    if (!TZIsPrintableString(nameC, 256)) { (*skipped)++; return; }
     NSString *catName = [NSString stringWithUTF8String:nameC];
     if (!catName.length) { (*skipped)++; return; }
 
     uintptr_t clsPtr = DKStripPAC(fields[1]);
     NSString *className = nil;
 
-    if (clsPtr != 0 && !DKIsValidObjCClassPtr(clsPtr)) {
+    if (clsPtr != 0 && !TZIsValidObjCClassPtr(clsPtr)) {
         NSLog(@"[DKCAT-DIAG] %s bad cls=%016lx name=%@",
               tag, (unsigned long)clsPtr, catName);
         (*skipped)++;
@@ -541,14 +541,14 @@ static void DKProcessCategory(uintptr_t catAddr,
         }
     }
     if (!className.length && fields[2] != 0) {
-        NSString *rev = DKClassFromCategoryMethods(DKStripPAC(fields[2]));
+        NSString *rev = TZClassFromCategoryMethods(DKStripPAC(fields[2]));
         if (rev) {
             className = rev;
             DKScanLog("REVERSE cat=%@ -> class=%@", catName, rev);
         }
     }
     if (!className.length && fields[3] != 0) {
-        NSString *rev = DKClassFromCategoryMethods(DKStripPAC(fields[3]));
+        NSString *rev = TZClassFromCategoryMethods(DKStripPAC(fields[3]));
         if (rev) {
             className = rev;
             DKScanLog("REVERSE cls=%@ -> class=%@", catName, rev);
@@ -578,7 +578,7 @@ static void DKProcessCategory(uintptr_t catAddr,
                 np &= 0x0000FFFFFFFFFFFF;
                 if (DKAddressInAnyLoadedImage(np, 1)) selName = (const char *)np;
             }
-            if (selName && DKIsPrintableString(selName, 256)) {
+            if (selName && TZIsPrintableString(selName, 256)) {
                 NSString *found = DKLookupClassBySEL([NSString stringWithUTF8String:selName]);
                 if (found) {
                     className = found;
@@ -622,8 +622,8 @@ static void DKProcessCategory(uintptr_t catAddr,
                     if (!DKAddressInAnyLoadedImage(ap2, 1)) continue;
                     const char *pn = (const char *)np2;
                     const char *pa = (const char *)ap2;
-                    if (!DKIsPrintableString(pn, 256)) continue;
-                    if (!DKIsPrintableString(pa, 1024)) continue;
+                    if (!TZIsPrintableString(pn, 256)) continue;
+                    if (!TZIsPrintableString(pa, 1024)) continue;
                     const char *t = pa;
                     if (*t == 'T') t++;
                     char tb[256] = {0};
@@ -666,7 +666,7 @@ static void DKProcessCategory(uintptr_t catAddr,
 
 #pragma mark - Main
 
-void DKStaticDumpCategories(NSString *binaryPath,
+void TZStaticDumpCategories(NSString *binaryPath,
                             void (^onCategory)(NSString *className,
                                                NSString *categoryName,
                                                NSString *text)) {
@@ -674,7 +674,7 @@ void DKStaticDumpCategories(NSString *binaryPath,
     DKInitSELToClassMap();
     if (!onCategory) return;
     DKInstallCrashHandlers();
-    NSLog(@"[DKStatic] scanning categories v4...");
+    NSLog(@"[TZStatic] scanning categories v4...");
 
     uint32_t total = _dyld_image_count();
     NSUInteger totalCats = 0;
@@ -754,7 +754,7 @@ void DKStaticDumpCategories(NSString *binaryPath,
             }
 
             if (catlistAddr != 0 || catlist2Addr != 0) {
-                NSLog(@"[DKStatic] %s: catlist=%lu catlist2=%lu",
+                NSLog(@"[TZStatic] %s: catlist=%lu catlist2=%lu",
                       imgName,
                       (unsigned long)(catlistSize / 8),
                       (unsigned long)(catlist2Size / 4));
@@ -762,7 +762,7 @@ void DKStaticDumpCategories(NSString *binaryPath,
         }
     }
 
-    NSLog(@"[DKStatic] done: total=%lu skipped=%lu seenCatlist=%lu seenCatlist2=%lu",
+    NSLog(@"[TZStatic] done: total=%lu skipped=%lu seenCatlist=%lu seenCatlist2=%lu",
           (unsigned long)totalCats, (unsigned long)skipped,
           (unsigned long)seenCatlist, (unsigned long)seenCatlist2);
 

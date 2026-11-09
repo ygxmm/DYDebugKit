@@ -1,20 +1,20 @@
 //
-//  DKDebugCapture.h
-//  DYKiller
+//  TZDebugCapture.h
+//  tz
 //
 //  抓取当前页面的运行时快照（窗口/视图树/VC 树/图层/截图/本页类），产出
-//  一个只含"已算好数据"的 DKDebugExportContext，交给 DKDebugExport 落盘。
+//  一个只含"已算好数据"的 TZDebugExportContext，交给 TZDebugExport 落盘。
 //
 
-#ifndef DKDebugCapture_h
-#define DKDebugCapture_h
+#ifndef TZDebugCapture_h
+#define TZDebugCapture_h
 
 #import <UIKit/UIKit.h>
 
-@class DKAudioProbeCapture;
+@class TZAudioProbeCapture;
 
-/// 一次页面快照的产物（纯数据；序列化由 DKDebugExport 负责）。
-@interface DKDebugExportContext : NSObject
+/// 一次页面快照的产物（纯数据；序列化由 TZDebugExport 负责）。
+@interface TZDebugExportContext : NSObject
 @property (nonatomic, strong) NSDictionary *metadata;
 @property (nonatomic, strong) NSArray *windowsJSON;
 @property (nonatomic, strong) NSArray *viewTreeJSON;
@@ -33,13 +33,13 @@
 @property (nonatomic, copy) NSString *probeText;
 @property (nonatomic, strong) NSDictionary<NSString *, NSString *> *probes;
 /// 音频专项模式的五秒采样产物；普通页面/全类导出时为 nil。
-@property (nonatomic, strong) DKAudioProbeCapture *audioCapture;
+@property (nonatomic, strong) TZAudioProbeCapture *audioCapture;
 @property (nonatomic, weak) UIView *sourceView;
 @property (nonatomic, weak) UIViewController *presenter;
 @end
 
 typedef NSString * _Nullable (^DKProbeBlock)(UIWindow * _Nullable window);
-FOUNDATION_EXPORT void DKRegisterProbe(NSString *name, DKProbeBlock block);
+FOUNDATION_EXPORT void TZRegisterProbe(NSString *name, DKProbeBlock block);
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,24 +51,24 @@ extern "C" {
 /// 记录最后一次点击命中的 View 及坐标（供 Hit-test 探针使用）
 void DKRecordHitTest(UIView *hitView, CGPoint point);
 
-NSArray<UIWindow *> *DKDebugActiveWindows(void);
+NSArray<UIWindow *> *TZDebugActiveWindows(void);
 
 /// 前台 key 窗口（排除调试自身窗口）。
-UIWindow *DKDebugTargetWindow(void);
+UIWindow *TZDebugTargetWindow(void);
 
 /// 某窗口当前最顶层的 VC（穿透 present/nav/tab）。
-UIViewController *DKDebugTopPresenter(UIWindow *window);
+UIViewController *TZDebugTopPresenter(UIWindow *window);
 
 /// 抓取一次页面快照。
-DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView);
+TZDebugExportContext *TZDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView);
 
 /// 只采元信息与截图，不遍历 view tree；音频专项导出用。
-DKDebugExportContext *DKDebugCaptureMetadataContext(UIWindow *targetWindow);
+TZDebugExportContext *TZDebugCaptureMetadataContext(UIWindow *targetWindow);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* DKDebugCapture_h */
+#endif /* TZDebugCapture_h */
 
-NSArray<NSString *> *DKGetCapturedPageSwiftClasses(void);
+NSArray<NSString *> *TZGetCapturedPageSwiftClasses(void);

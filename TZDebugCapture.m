@@ -1,8 +1,8 @@
 //
-//  DKDebugCapture.m
-//  DYKiller
+//  TZDebugCapture.m
+//  tz
 //
-//  只读地遍历 UIKit/CoreAnimation 安全字段 + 收集本页类，产出 DKDebugExportContext。
+//  只读地遍历 UIKit/CoreAnimation 安全字段 + 收集本页类，产出 TZDebugExportContext。
 //  不递归读任意对象的 ivar 值。
 //
 
@@ -10,8 +10,8 @@
 #define DK_VERSION @"1.0.0"
 #endif
 
-#import "DKDebugCapture.h"
-#import "DKClassDump.h"
+#import "TZDebugCapture.h"
+#import "TZClassDump.h"
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 
@@ -19,7 +19,7 @@ static NSMutableSet<NSString *> *gPageSwiftClasses = nil;
 
 void DKRecordHitTest(UIView *hitView, CGPoint point);
 
-@implementation DKDebugExportContext
+@implementation TZDebugExportContext
 @end
 
 #pragma mark - 小型格式化工具
@@ -28,7 +28,7 @@ static NSString *DKStringFromPointer(const void *pointer) {
     return [NSString stringWithFormat:@"%p", pointer];
 }
 
-static NSString *DKClassName(id object) {
+static NSString *TZClassName(id object) {
     return object ? NSStringFromClass([object class]) : @"";
 }
 
@@ -90,21 +90,21 @@ static NSDictionary *DKTransform3DDict(CATransform3D t) {
 
 #pragma mark - 窗口与控制器工具
 
-// DK_WINDOW_FILTER: 排除 DYKiller 自身窗口（类名/控制器/层级三重判断）
-static BOOL DKIsDebugWindow(UIWindow *window) {
+// DK_WINDOW_FILTER: 排除 tz 自身窗口（类名/控制器/层级三重判断）
+static BOOL TZIsDebugWindow(UIWindow *window) {
     if (!window) return YES;
-    NSString *cls = DKClassName(window);
-    NSString *rvc = DKClassName(window.rootViewController);
+    NSString *cls = TZClassName(window);
+    NSString *rvc = TZClassName(window.rootViewController);
 
     NSArray<NSString *> *prefixes =
-        @[@"DKDebug", @"DYDebug", @"DYKiller", @"FLEX",
+        @[@"TZDebug", @"DYDebug", @"tz", @"FLEX",
           @"DKOverlay", @"DYOverlay"];
     for (NSString *p in prefixes) {
         if ([cls hasPrefix:p]) return YES;
         if ([rvc hasPrefix:p]) return YES;
     }
 
-    // DYKiller 浮层 windowLevel = UIWindowLevelAlert + 100
+    // tz 浮层 windowLevel = UIWindowLevelAlert + 100
     CGFloat lv = window.windowLevel;
     if (lv >= UIWindowLevelAlert + 99.5 && lv <= UIWindowLevelAlert + 100.5) {
         return YES;
@@ -112,14 +112,14 @@ static BOOL DKIsDebugWindow(UIWindow *window) {
     return NO;
 }
 
-NSArray<UIWindow *> *DKDebugActiveWindows(void) {
+NSArray<UIWindow *> *TZDebugActiveWindows(void) {
     NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:[UIWindowScene class]]) continue;
             if (scene.activationState != UISceneActivationStateForegroundActive) continue;
             for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-                if (!window || DKIsDebugWindow(window)) continue;
+                if (!window || TZIsDebugWindow(window)) continue;
                 if (window.hidden || window.alpha <= 0.01) continue;
                 [windows addObject:window];
             }
@@ -129,7 +129,7 @@ NSArray<UIWindow *> *DKDebugActiveWindows(void) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
         for (UIWindow *window in UIApplication.sharedApplication.windows) {
-            if (!window || DKIsDebugWindow(window)) continue;
+            if (!window || TZIsDebugWindow(window)) continue;
             if (window.hidden || window.alpha <= 0.01) continue;
             [windows addObject:window];
         }
@@ -138,8 +138,8 @@ NSArray<UIWindow *> *DKDebugActiveWindows(void) {
     return windows;
 }
 
-UIWindow *DKDebugTargetWindow(void) {
-    NSArray<UIWindow *> *windows = DKDebugActiveWindows();
+UIWindow *TZDebugTargetWindow(void) {
+    NSArray<UIWindow *> *windows = TZDebugActiveWindows();
     for (UIWindow *window in windows) if (window.isKeyWindow) return window;
     return windows.firstObject;
 }
@@ -172,7 +172,7 @@ static UIViewController *DKTopViewControllerFrom(UIViewController *vc) {
     return vc;
 }
 
-UIViewController *DKDebugTopPresenter(UIWindow *window) {
+UIViewController *TZDebugTopPresenter(UIWindow *window) {
     return DKTopViewControllerFrom(window.rootViewController);
 }
 
@@ -181,7 +181,7 @@ UIViewController *DKDebugTopPresenter(UIWindow *window) {
 static NSDictionary *DKLayerInfo(CALayer *layer) {
     if (!layer) return @{};
     return @{
-        @"class": DKClassName(layer),
+        @"class": TZClassName(layer),
         @"address": DKStringFromPointer((__bridge const void *)layer),
         @"bounds": DKRectDict(layer.bounds),
         @"position": DKPointDict(layer.position),
@@ -194,7 +194,7 @@ static NSDictionary *DKLayerInfo(CALayer *layer) {
         @"sublayerCount": @(layer.sublayers.count),
         @"transform": DKTransform3DDict(layer.transform),
         @"mask": layer.mask ? @{
-            @"class": DKClassName(layer.mask),
+            @"class": TZClassName(layer.mask),
             @"address": DKStringFromPointer((__bridge const void *)layer.mask),
             @"bounds": DKRectDict(layer.mask.bounds)
         } : @{}
@@ -204,7 +204,7 @@ static NSDictionary *DKLayerInfo(CALayer *layer) {
 static NSMutableDictionary *DKBaseViewInfo(UIView *view, NSUInteger depth) {
     UIViewController *nearestVC = DKViewControllerForView(view);
     NSMutableDictionary *info = [@{
-        @"class": DKClassName(view),
+        @"class": TZClassName(view),
         @"address": DKStringFromPointer((__bridge const void *)view),
         @"depth": @(depth),
         @"frame": DKRectDict(view.frame),
@@ -226,7 +226,7 @@ static NSMutableDictionary *DKBaseViewInfo(UIView *view, NSUInteger depth) {
         @"accessibilityIdentifier": view.accessibilityIdentifier ?: @"",
         @"accessibilityLabel": view.accessibilityLabel ?: @"",
         @"nearestViewController": nearestVC ? @{
-            @"class": DKClassName(nearestVC),
+            @"class": TZClassName(nearestVC),
             @"address": DKStringFromPointer((__bridge const void *)nearestVC)
         } : @{},
         @"layer": DKLayerInfo(view.layer),
@@ -342,25 +342,25 @@ static void DKAppendViewTreeText(UIView *view, NSUInteger depth, NSMutableString
 
     [out appendFormat:@"%@%@ %@ frame=%@ %@%@vc=%@ %@ %@hidden=%d alpha=%.3f clips=%d user=%d layer=%@\n",
      indent,
-     DKClassName(view),
+     TZClassName(view),
      DKStringFromPointer((__bridge const void *)view),
      NSStringFromCGRect(view.frame),
      absStr,
      clippedStr,
-     vc ? DKClassName(vc) : @"",
+     vc ? TZClassName(vc) : @"",
      vc ? DKStringFromPointer((__bridge const void *)vc) : @"",
      extra,
      view.hidden,
      view.alpha,
      view.clipsToBounds,
      view.userInteractionEnabled,
-     DKClassName(view.layer)];
+     TZClassName(view.layer)];
     for (UIView *subview in view.subviews) DKAppendViewTreeText(subview, depth + 1, out);
 }
 
 static NSDictionary *DKWindowJSON(UIWindow *window) {
     return @{
-        @"class": DKClassName(window),
+        @"class": TZClassName(window),
         @"address": DKStringFromPointer((__bridge const void *)window),
         @"frame": DKRectDict(window.frame),
         @"bounds": DKRectDict(window.bounds),
@@ -369,7 +369,7 @@ static NSDictionary *DKWindowJSON(UIWindow *window) {
         @"alpha": DKNum(window.alpha),
         @"keyWindow": @(window.isKeyWindow),
         @"rootViewController": window.rootViewController ? @{
-            @"class": DKClassName(window.rootViewController),
+            @"class": TZClassName(window.rootViewController),
             @"address": DKStringFromPointer((__bridge const void *)window.rootViewController)
         } : @{}
     };
@@ -393,20 +393,20 @@ static void DKAppendVCText(UIViewController *vc, NSUInteger depth, NSMutableStri
     UIView *view = loaded ? vc.view : nil;
     [out appendFormat:@"%@%@ %@ viewLoaded=%@ view=%@ %@ frame=%@\n",
      indent,
-     DKClassName(vc),
+     TZClassName(vc),
      DKStringFromPointer((__bridge const void *)vc),
      loaded ? @"YES" : @"NO",
-     DKClassName(view),
+     TZClassName(view),
      view ? DKStringFromPointer((__bridge const void *)view) : @"",
      view ? NSStringFromCGRect(view.frame) : @"null"];
 
     if ([vc isKindOfClass:[UINavigationController class]]) {
         UINavigationController *nav = (UINavigationController *)vc;
-        [out appendFormat:@"%@  nav.top=%@ nav.visible=%@\n", indent, DKClassName(nav.topViewController), DKClassName(nav.visibleViewController)];
+        [out appendFormat:@"%@  nav.top=%@ nav.visible=%@\n", indent, TZClassName(nav.topViewController), TZClassName(nav.visibleViewController)];
     }
     if ([vc isKindOfClass:[UITabBarController class]]) {
         UITabBarController *tab = (UITabBarController *)vc;
-        [out appendFormat:@"%@  tab.selected=%@\n", indent, DKClassName(tab.selectedViewController)];
+        [out appendFormat:@"%@  tab.selected=%@\n", indent, TZClassName(tab.selectedViewController)];
     }
     for (UIViewController *child in vc.childViewControllers) DKAppendVCText(child, depth + 1, out, seen);
     if (vc.presentedViewController) {
@@ -422,7 +422,7 @@ static NSData *DKScreenshotPNG(UIWindow *targetWindow) {
     if (!targetWindow) return NSData.data;
 
     NSArray<UIWindow *> *windows =
-        [DKDebugActiveWindows() sortedArrayUsingComparator:^NSComparisonResult(UIWindow *a, UIWindow *b) {
+        [TZDebugActiveWindows() sortedArrayUsingComparator:^NSComparisonResult(UIWindow *a, UIWindow *b) {
             if (a.windowLevel == b.windowLevel) return NSOrderedSame;
             return a.windowLevel < b.windowLevel ? NSOrderedAscending : NSOrderedDescending;
         }];
@@ -443,7 +443,7 @@ static NSData *DKScreenshotPNG(UIWindow *targetWindow) {
 static NSMutableDictionary<NSString *, DKProbeBlock> *gProbeBlocks = nil;
 static NSMutableArray<NSString *> *gProbeOrder = nil;
 
-void DKRegisterProbe(NSString *name, DKProbeBlock block) {
+void TZRegisterProbe(NSString *name, DKProbeBlock block) {
     if (!name.length || !block) return;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -454,7 +454,7 @@ void DKRegisterProbe(NSString *name, DKProbeBlock block) {
     gProbeBlocks[name] = [block copy];
 }
 
-static NSDictionary<NSString *, NSString *> *DKRunAllProbes(UIWindow *window) {
+static NSDictionary<NSString *, NSString *> *TZRunAllProbes(UIWindow *window) {
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
     for (NSString *name in gProbeOrder) {
         @try {
@@ -467,7 +467,7 @@ static NSDictionary<NSString *, NSString *> *DKRunAllProbes(UIWindow *window) {
     return result;
 }
 
-static BOOL DKIsDecorativeView(UIView *v) {
+static BOOL TZIsDecorativeView(UIView *v) {
     NSString *cls = NSStringFromClass([v class]);
     return [cls isEqualToString:@"_UIBarBackground"]
         || [cls hasPrefix:@"AWETabBarSkin"]
@@ -478,7 +478,7 @@ static BOOL DKIsDecorativeView(UIView *v) {
 
 static void DKAppendViewNode(UIView *v, NSMutableString *out, NSUInteger depth) {
     if (!v) return;
-    if (DKIsDecorativeView(v)) return;
+    if (TZIsDecorativeView(v)) return;
     NSMutableString *indent = [NSMutableString string];
     for (NSUInteger i = 0; i < MIN(depth, 8); i++) [indent appendString:@"  "];
     [out appendFormat:@"%@%@ frame=%@ hidden=%d alpha=%.2f user=%d\n",
@@ -627,7 +627,7 @@ void DKRecordHitTest(UIView *hitView, CGPoint point) {
     gLastHitTime = [NSDate date];
 }
 
-static NSString *DKCaptureHitTestProbe(UIWindow *window) {
+static NSString *TZCaptureHitTestProbe(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# Touch Hit Test Probe\n"];
     [out appendString:@"# 记录用户在点击悬浮球导出前，最后一次触摸屏幕命中的视图\n\n"];
@@ -657,7 +657,7 @@ static NSString *DKCaptureHitTestProbe(UIWindow *window) {
     return out;
 }
 
-static NSString *DKCaptureAnomaliesProbe(UIWindow *window) {
+static NSString *TZCaptureAnomaliesProbe(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# Global Anomalies Probe\n"];
     [out appendString:@"# 自动扫描：尺寸为0的交互、完全越界(不在屏幕上)的视图\n\n"];
@@ -671,7 +671,7 @@ static NSString *DKCaptureAnomaliesProbe(UIWindow *window) {
     return out;
 }
 
-static NSString *DKCaptureTabBarProbe(UIWindow *window) {
+static NSString *TZCaptureTabBarProbe(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# TabBar probe (generic)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
@@ -703,17 +703,17 @@ static NSString *DKCaptureTabBarProbe(UIWindow *window) {
     return out;
 }
 
-static void DKRegisterBuiltinProbes(void) {
+static void TZRegisterBuiltinProbes(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        DKRegisterProbe(@"tabbar", ^NSString *(UIWindow *window) {
-            return DKCaptureTabBarProbe(window);
+        TZRegisterProbe(@"tabbar", ^NSString *(UIWindow *window) {
+            return TZCaptureTabBarProbe(window);
         });
-        DKRegisterProbe(@"anomalies", ^NSString *(UIWindow *window) {
-            return DKCaptureAnomaliesProbe(window);
+        TZRegisterProbe(@"anomalies", ^NSString *(UIWindow *window) {
+            return TZCaptureAnomaliesProbe(window);
         });
-        DKRegisterProbe(@"touch", ^NSString *(UIWindow *window) {
-            return DKCaptureHitTestProbe(window);
+        TZRegisterProbe(@"touch", ^NSString *(UIWindow *window) {
+            return TZCaptureHitTestProbe(window);
         });
     });
 }
@@ -723,9 +723,9 @@ static void DKRegisterBuiltinProbes(void) {
 // 收集一个类及其整条继承链的类名：跳过运行时生成子类噪声，但继续上溯 → 自动收到真实基类。
 static void DKCollectClassAndSupers(Class cls, NSMutableSet<NSString *> *names) {
     for (int i = 0; cls && i < 50; i++) {
-        if (!DKClassIsSafe(cls)) break;
+        if (!TZClassIsSafe(cls)) break;
         NSString *name = NSStringFromClass(cls);
-        if (name.length && !DKClassNameIsRuntimeGenerated(name)) [names addObject:name];
+        if (name.length && !TZClassNameIsRuntimeGenerated(name)) [names addObject:name];
         cls = class_getSuperclass(cls);
     }
 }
@@ -758,10 +758,10 @@ static void DKCollectPageClassesFromVC(UIViewController *vc, NSMutableSet<NSStri
     if (vc.presentedViewController) DKCollectPageClassesFromVC(vc.presentedViewController, names, seen);
 }
 
-static NSDictionary *DKDebugMetadata(UIWindow *targetWindow, CGPoint point) {
+static NSDictionary *TZDebugMetadata(UIWindow *targetWindow, CGPoint point) {
     return @{
         @"generatedAt": DKObjectDesc(NSDate.date),
-        @"dykillerVersion": DK_VERSION,
+        @"tzVersion": DK_VERSION,
         @"bundleIdentifier": NSBundle.mainBundle.bundleIdentifier ?: @"",
         @"bundleName": NSBundle.mainBundle.infoDictionary[@"CFBundleName"] ?: @"",
         @"appVersion": NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"] ?: @"",
@@ -777,29 +777,29 @@ static NSDictionary *DKDebugMetadata(UIWindow *targetWindow, CGPoint point) {
 
 // 音频专项导出只用得上元信息和截图。整棵 view tree 有几 MB，
 // 采到再丢等于让主线程白跑一趟，所以单开这条轻量路径。
-DKDebugExportContext *DKDebugCaptureMetadataContext(UIWindow *targetWindow) {
-    DKDebugExportContext *context = [DKDebugExportContext new];
-    context.metadata = DKDebugMetadata(targetWindow, CGPointZero);
+TZDebugExportContext *TZDebugCaptureMetadataContext(UIWindow *targetWindow) {
+    TZDebugExportContext *context = [TZDebugExportContext new];
+    context.metadata = TZDebugMetadata(targetWindow, CGPointZero);
     context.screenshotPNG = DKScreenshotPNG(targetWindow);
     context.sourceView = targetWindow;
-    context.presenter = DKDebugTopPresenter(targetWindow);
+    context.presenter = TZDebugTopPresenter(targetWindow);
     return context;
 }
 
 
-NSArray<NSString *> *DKGetCapturedPageSwiftClasses(void) {
+NSArray<NSString *> *TZGetCapturedPageSwiftClasses(void) {
     return gPageSwiftClasses ? [gPageSwiftClasses allObjects] : @[];
 }
 
 // DK_FORWARD_DECL: 采集函数 forward declaration（避免 implicit declaration）
-static NSString *DKCaptureInteractivesText(UIWindow *window);
-static NSString *DKCaptureTextsText(UIWindow *window);
-static NSString *DKCaptureImagesText(UIWindow *window); // DK_FEATURE_IMAGES
-static NSString *DKCaptureRespondersText(UIWindow *window); // DK_FEATURE_RESPONDERS
+static NSString *TZCaptureInteractivesText(UIWindow *window);
+static NSString *TZCaptureTextsText(UIWindow *window);
+static NSString *TZCaptureImagesText(UIWindow *window); // DK_FEATURE_IMAGES
+static NSString *TZCaptureRespondersText(UIWindow *window); // DK_FEATURE_RESPONDERS
 
-DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView) {
-    DKDebugExportContext *context = [DKDebugExportContext new];
-    NSArray<UIWindow *> *windows = DKDebugActiveWindows();
+TZDebugExportContext *TZDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView) {
+    TZDebugExportContext *context = [TZDebugExportContext new];
+    NSArray<UIWindow *> *windows = TZDebugActiveWindows();
     NSMutableArray *windowsJSON = [NSMutableArray array];
     NSMutableArray *treeJSON = [NSMutableArray array];
     NSMutableArray *layersJSON = [NSMutableArray array];
@@ -816,7 +816,7 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
         DKCollectPageClassesFromView(window, pageClasses);
         DKCollectPageClassesFromVC(window.rootViewController, pageClasses, seenClassVCs);
         if (window.rootViewController) {
-            [vcText appendFormat:@"Window %@ %@\n", DKClassName(window), DKStringFromPointer((__bridge const void *)window)];
+            [vcText appendFormat:@"Window %@ %@\n", TZClassName(window), DKStringFromPointer((__bridge const void *)window)];
             DKAppendVCText(window.rootViewController, 1, vcText, seenVCs);
         }
     }
@@ -826,7 +826,7 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
         @"tapPointInWindow": DKPointDict(point),
         @"hitView": DKBaseViewInfo(selectedView ?: targetWindow, 0),
         @"nearestViewController": nearestVC ? @{
-            @"class": DKClassName(nearestVC),
+            @"class": TZClassName(nearestVC),
             @"address": DKStringFromPointer((__bridge const void *)nearestVC)
         } : @{},
         @"ancestorChain": selectedView ? DKAncestorChain(selectedView) : @[]
@@ -834,16 +834,16 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
 
     NSString *summary = [NSString stringWithFormat:
                          @"Hit: %@ %@\nFrame: %@\nBounds: %@\nNearest VC: %@ %@\nWindows: %lu\nSubviews: %lu",
-                         DKClassName(selectedView),
+                         TZClassName(selectedView),
                          DKStringFromPointer((__bridge const void *)selectedView),
                          selectedView ? NSStringFromCGRect(selectedView.frame) : @"",
                          selectedView ? NSStringFromCGRect(selectedView.bounds) : @"",
-                         nearestVC ? DKClassName(nearestVC) : @"",
+                         nearestVC ? TZClassName(nearestVC) : @"",
                          nearestVC ? DKStringFromPointer((__bridge const void *)nearestVC) : @"",
                          (unsigned long)windows.count,
                          (unsigned long)selectedView.subviews.count];
 
-    context.metadata = DKDebugMetadata(targetWindow, point);
+    context.metadata = TZDebugMetadata(targetWindow, point);
     context.windowsJSON = windowsJSON;
     context.viewTreeJSON = treeJSON;
     context.viewTreeText = treeText;
@@ -853,15 +853,15 @@ DKDebugExportContext *DKDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
     context.screenshotPNG = DKScreenshotPNG(targetWindow);
     context.summary = summary;
     context.pageClassNames = pageClasses.allObjects;
-    context.interactivesText = DKCaptureInteractivesText(targetWindow); // DK_FEATURE_INTERACTIVES
-    context.textsText = DKCaptureTextsText(targetWindow);              // DK_FEATURE_TEXTS
-    context.imagesText = DKCaptureImagesText(targetWindow);                // DK_FEATURE_IMAGES
-    context.respondersText = DKCaptureRespondersText(targetWindow);        // DK_FEATURE_RESPONDERS
-    DKRegisterBuiltinProbes();
-    context.probes = DKRunAllProbes(targetWindow);
+    context.interactivesText = TZCaptureInteractivesText(targetWindow); // DK_FEATURE_INTERACTIVES
+    context.textsText = TZCaptureTextsText(targetWindow);              // DK_FEATURE_TEXTS
+    context.imagesText = TZCaptureImagesText(targetWindow);                // DK_FEATURE_IMAGES
+    context.respondersText = TZCaptureRespondersText(targetWindow);        // DK_FEATURE_RESPONDERS
+    TZRegisterBuiltinProbes();
+    context.probes = TZRunAllProbes(targetWindow);
     context.probeText = context.probes[@"tabbar"] ?: @"";
     context.sourceView = targetWindow;
-    context.presenter = DKDebugTopPresenter(targetWindow);
+    context.presenter = TZDebugTopPresenter(targetWindow);
     return context;
 }
 
@@ -972,7 +972,7 @@ static void DKCollectInteractivesFromView(UIView *v, NSMutableString *out, NSUIn
     for (UIView *sub in v.subviews) DKCollectInteractivesFromView(sub, out, depth + 1);
 }
 
-static NSString *DKCaptureInteractivesText(UIWindow *window) {
+static NSString *TZCaptureInteractivesText(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# Interactives (UIControl / gestures)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
@@ -1015,7 +1015,7 @@ static void DKCollectTextsFromView(UIView *v, NSMutableString *out, NSUInteger d
     for (UIView *sub in v.subviews) DKCollectTextsFromView(sub, out, depth + 1);
 }
 
-static NSString *DKCaptureTextsText(UIWindow *window) {
+static NSString *TZCaptureTextsText(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# Texts (UILabel / UITextField / UITextView / UIButton title)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
@@ -1045,7 +1045,7 @@ static void DKCollectImagesFromView(UIView *v, NSMutableString *out, NSUInteger 
     for (UIView *sub in v.subviews) DKCollectImagesFromView(sub, out, depth + 1);
 }
 
-static NSString *DKCaptureImagesText(UIWindow *window) {
+static NSString *TZCaptureImagesText(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# Images (UIImageView)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
@@ -1077,7 +1077,7 @@ static void DKCollectRespondersFromView(UIView *v, NSMutableString *out, NSUInte
     for (UIView *sub in v.subviews) DKCollectRespondersFromView(sub, out, depth + 1);
 }
 
-static NSString *DKCaptureRespondersText(UIWindow *window) {
+static NSString *TZCaptureRespondersText(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# Responder chains (UIControl / gesture view -> nextResponder ...)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }

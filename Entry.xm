@@ -2,8 +2,8 @@
 #import <QuartzCore/QuartzCore.h>
 #import <notify.h>
 
-#import "DKDebugCapture.h"
-#import "DKDebugExport.h"
+#import "TZDebugCapture.h"
+#import "TZDebugExport.h"
 
 #pragma mark - 是否启用当前 App
 
@@ -172,13 +172,13 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     [sheet addAction:[UIAlertAction actionWithTitle:@"① 导出本页头文件"
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithMode:DKDebugExportModePage];
+        [weakSelf performExportWithMode:TZDebugExportModePage];
     }]];
 
     [sheet addAction:[UIAlertAction actionWithTitle:@"② 导出全部 ClassDump"
                                               style:UIAlertActionStyleDefault
                                             handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithMode:DKDebugExportModeAllClasses];
+        [weakSelf performExportWithMode:TZDebugExportModeAllClasses];
     }]];
 
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消"
@@ -196,10 +196,10 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
 #pragma mark - 执行导出
 
-- (void)performExportWithMode:(DKDebugExportMode)mode {
-    UIWindow *target = DKDebugTargetWindow();
+- (void)performExportWithMode:(TZDebugExportMode)mode {
+    UIWindow *target = TZDebugTargetWindow();
     if (target == nil) { [self showResult:@"找不到当前窗口"]; return; }
-    DKDebugExportContext *context = DKDebugCaptureContext(target, CGPointZero, nil);
+    TZDebugExportContext *context = TZDebugCaptureContext(target, CGPointZero, nil);
     if (context == nil) { [self showResult:@"无法创建调试快照"]; return; }
 
     self.exporting = YES;
@@ -207,7 +207,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error = nil;
-        DKDebugExportResult *result = DKDebugCreateExport(context, mode, ^(NSString *text) {
+        TZDebugExportResult *result = TZDebugCreateExport(context, mode, ^(NSString *text) {
             if (!text.length) return;
             dispatch_async(dispatch_get_main_queue(), ^{
                 // DK_HUD_V2

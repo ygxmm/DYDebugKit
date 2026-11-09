@@ -1,26 +1,26 @@
 //
-//  DKDebugExport.h
-//  DYKiller
+//  TZDebugExport.h
+//  tz
 //
 //  把主线程采集完成的调试上下文序列化并打包。
 //
 
-#ifndef DKDebugExport_h
-#define DKDebugExport_h
+#ifndef TZDebugExport_h
+#define TZDebugExport_h
 
 #import <Foundation/Foundation.h>
-#import "DKDebugCapture.h"
+#import "TZDebugCapture.h"
 
-typedef NS_ENUM(NSUInteger, DKDebugExportMode) {
-    DKDebugExportModePage,
-    DKDebugExportModeAudio,
-    DKDebugExportModeAllClasses,
+typedef NS_ENUM(NSUInteger, TZDebugExportMode) {
+    TZDebugExportModePage,
+    TZDebugExportModeAudio,
+    TZDebugExportModeAllClasses,
 };
 
 /// ZIP 生成失败时，工作目录会被保留，路径放在 error.userInfo 的这个键上。
-extern NSString *const DKDebugExportWorkingDirectoryKey;
+extern NSString *const TZDebugExportWorkingDirectoryKey;
 
-@interface DKDebugExportResult : NSObject
+@interface TZDebugExportResult : NSObject
 @property (nonatomic, strong) NSURL *zipURL;
 @property (nonatomic, strong) NSURL *workingDirectoryURL;
 @end
@@ -30,16 +30,16 @@ extern "C" {
 #endif
 
 /// 在后台线程生成导出包。失败时返回 nil，并通过 error 返回真实原因。
-DKDebugExportResult *DKDebugCreateExport(DKDebugExportContext *context,
-                                         DKDebugExportMode mode,
+TZDebugExportResult *TZDebugCreateExport(TZDebugExportContext *context,
+                                         TZDebugExportMode mode,
                                          void (^progress)(NSString *text),
                                          NSError **error);
 
 /// 分享完成或取消后删除工作目录和 zip。
-void DKDebugCleanupExport(DKDebugExportResult *result);
+void TZDebugCleanupExport(TZDebugExportResult *result);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* DKDebugExport_h */
+#endif /* TZDebugExport_h */

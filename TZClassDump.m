@@ -1,12 +1,12 @@
 //
-//  DKClassDump.m
-//  DYKiller
+//  TZClassDump.m
+//  tz
 //
 //  基于 ObjC 运行时生成类头文件文本。
-//  DKClassIsSafe 用于限制可内省类集合。
+//  TZClassIsSafe 用于限制可内省类集合。
 //
 
-#import "DKClassDump.h"
+#import "TZClassDump.h"
 #import <CoreFoundation/CoreFoundation.h>
 
 static NSString *DKCString(const char *value) {
@@ -30,7 +30,7 @@ static Class DKcNSObject;
 static Class DKcNSProxy;
 
 __attribute__((constructor))
-static void DKClassDumpInit(void) {
+static void TZClassDumpInit(void) {
     DKcNSObject = [NSObject class];
     DKcNSProxy = [NSProxy class];
 
@@ -52,7 +52,7 @@ static void DKClassDumpInit(void) {
     free(classes);
 }
 
-BOOL DKClassIsSafe(Class cls) {
+BOOL TZClassIsSafe(Class cls) {
     if (!cls) return NO;
     if (DKUnsafeClassSet && CFSetContainsValue(DKUnsafeClassSet, (__bridge const void *)cls)) return NO;
     // 无父类者只有 NSObject / NSProxy 两个已知根类是安全的
@@ -64,7 +64,7 @@ BOOL DKClassIsSafe(Class cls) {
 
 #pragma mark - 过滤
 
-static BOOL DKIsLikelySwiftName(NSString *name) {
+static BOOL TZIsLikelySwiftName(NSString *name) {
     if (name.length == 0) return YES;
     if ([name hasPrefix:@"_Tt"]) return YES;
     if ([name hasPrefix:@"Swift."]) return YES;
@@ -87,7 +87,7 @@ NSString *DKDeduceSwiftModule(NSString *name) {
     return [[NSString alloc] initWithBytes:c length:len encoding:NSUTF8StringEncoding];
 }
 
-BOOL DKClassNameIsRuntimeGenerated(NSString *name) {
+BOOL TZClassNameIsRuntimeGenerated(NSString *name) {
     if (name.length == 0) return YES;
     if ([name hasPrefix:@"NSKVONotifying_"]) return YES;   // KVO 运行时子类
     if ([name containsString:@"_hmd_subfix_"]) return YES; // Heimdallr 崩溃修复子类
@@ -383,7 +383,7 @@ static NSString *DKMethodLine(Method m, BOOL isClassMethod) {
 #pragma mark - 单类头文件
 
 static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
-    if (!DKClassIsSafe(cls)) return nil;
+    if (!TZClassIsSafe(cls)) return nil;
     @try {
         NSString *className = NSStringFromClass(cls);
         if (className.length == 0) return nil;
@@ -399,7 +399,7 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 
         NSMutableString *h = [NSMutableString string];
         [h appendString:@"//\n"];
-        [h appendString:@"// Dumped by DYKiller DKClassDump\n"];
+        [h appendString:@"// Dumped by tz TZClassDump\n"];
         [h appendFormat:@"// Bundle: %@\n", NSBundle.mainBundle.bundleIdentifier ?: @"Unknown"];
         [h appendFormat:@"// Image: %@\n", imageName ?: @"Unknown"];
         [h appendString:@"//\n\n"];
@@ -586,7 +586,7 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 
 // 遍历所有已加载 image 的 __objc_classlist，返回 class_t* 数组
 // 运行时指针已重定位，直接解引用，不需要自己算 base address
-NSArray<NSValue *> *DKClassDumpAllClassesFromMachO(void) {
+NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
     NSMutableArray<NSValue *> *result = [NSMutableArray array];
     uint32_t imageCount = _dyld_image_count();
 
@@ -612,7 +612,7 @@ NSArray<NSValue *> *DKClassDumpAllClassesFromMachO(void) {
 }
 
 // Phase 1 测试：统计每个 image 的类数量
-NSDictionary<NSString *, NSNumber *> *DKClassDumpCountClassesPerImage(void) {
+NSDictionary<NSString *, NSNumber *> *TZClassDumpCountClassesPerImage(void) {
     NSMutableDictionary *counts = [NSMutableDictionary dictionary];
     uint32_t imageCount = _dyld_image_count();
 
@@ -637,8 +637,8 @@ NSDictionary<NSString *, NSNumber *> *DKClassDumpCountClassesPerImage(void) {
     return counts;
 }
 
-NSString *DKClassDumpHeaderForClass(Class cls) {
-    if (!DKClassIsSafe(cls)) return nil;
+NSString *TZClassDumpHeaderForClass(Class cls) {
+    if (!TZClassIsSafe(cls)) return nil;
     NSString *imageName = @"Unknown";
     const char *img = class_getImageName(cls);
     if (img) imageName = [DKCString(img) lastPathComponent] ?: @"Unknown";
