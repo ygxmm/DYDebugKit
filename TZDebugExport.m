@@ -323,11 +323,15 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
     for (NSString *imageName in groupedClasses.allKeys) {
         currentImage++;
         NSArray<NSValue *> *classValues = groupedClasses[imageName];
-        NSString *safeImageName = [DKSafeFileName(imageName) stringByReplacingOccurrencesOfString:@".dylib" withString:@""];
+        
+        // 直接使用原有的镜像名字，不替换后缀，和标准工具一模一样
+        NSString *safeImageName = [DKSafeFileName(imageName) stringByReplacingOccurrencesOfString:@" " withString:@"_"];
+        
+        // 如果某个 image 名字特别长或者空，兜个底
+        if (!safeImageName.length) safeImageName = @"Unknown";
         
         NSUInteger totalClasses = classValues.count;
         
-        // 按模块分类写入，进度条显示当前模块进度
         if (progress) {
             progress([NSString stringWithFormat:@"导出 [%@] %lu/%lu", safeImageName, (unsigned long)currentImage, (unsigned long)totalImages]);
         }
@@ -339,19 +343,12 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
             NSString *className = NSStringFromClass(cls);
             if (!className.length) continue;
             
-            // 过滤掉系统级别无意义的类，减少文件量
-            if ([className hasPrefix:@"NS"] || [className hasPrefix:@"UI"] || 
-                [className hasPrefix:@"_"] || [className hasPrefix:@"CA"] || 
-                [className hasPrefix:@"Swift"]) {
-                continue;
-            }
-            
             @autoreleasepool {
                 @try {
                     extern NSString *TZClassDumpHeaderForClass(Class cls);
                     NSString *header = TZClassDumpHeaderForClass(cls);
                     if (header.length > 0) {
-                        // 按模块建文件夹
+                        // 标准的：page/classes/ImageName/ClassName.h
                         NSString *relative = [NSString stringWithFormat:@"page/classes/%@/%@.h", safeImageName, className];
                         DKWriteString(sink, relative, header, NO);
                     }
