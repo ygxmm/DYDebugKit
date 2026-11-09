@@ -636,6 +636,7 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
         }
     }
     
+    NSLog(@"[TZClassDump] 最终去重后的类数量: %lu", (unsigned long)dict.count);
     return [dict allValues];
 }
 

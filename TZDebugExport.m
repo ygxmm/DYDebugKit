@@ -312,12 +312,15 @@ DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
 #pragma mark - 全部类导出
 
 static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *text)) {
-    // 1. 彻底改回同步执行，保证外层 zip 不会被提前关闭
+    NSMutableString *logStr = [NSMutableString string];
+    [logStr appendString:@"=== TZ ClassDump Debug Log ===\n"];
+    
     if (progress) progress(@"正在极速获取全量类...");
     
     extern NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
     NSArray<NSValue *> *allClassValues = TZClassDumpAllClassesFromMachO();
     
+    [logStr appendFormat:@"获取到原始类指针数量: %lu\n", (unsigned long)allClassValues.count];
     if (progress) progress([NSString stringWithFormat:@"提取到 %lu 个唯一类，准备解析...", (unsigned long)allClassValues.count]);
     
     NSMutableArray<NSString *> *allClassNames = [NSMutableArray arrayWithCapacity:allClassValues.count];
@@ -329,8 +332,13 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
         }
     }
     
-    // 2. 同步调用解析并写入文件，DKWritePageClasses 内部已经做了分批和 try-catch
+    [logStr appendFormat:@"去重后准备导出的类名数量: %lu\n", (unsigned long)allClassNames.count];
+    
+    // 调用分批写入
     DKWritePageClasses(sink, allClassNames, progress);
+    
+    [logStr appendString:@"=== 导出完成 ===\n"];
+    DKWriteString(sink, @"probe/classdump_debug.log", logStr, NO);
 }
 
 #pragma mark - 音频内容
