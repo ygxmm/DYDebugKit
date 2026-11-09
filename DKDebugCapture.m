@@ -312,7 +312,17 @@ static void DKAppendViewTreeText(UIView *view, NSUInteger depth, NSMutableString
     NSMutableString *indent = [NSMutableString string];
     for (NSUInteger i = 0; i < depth; i++) [indent appendString:@"  "];
     UIViewController *vc = DKViewControllerForView(view);
-    [out appendFormat:@"%@%@ %@ frame=%@ bounds=%@ vc=%@ %@ hidden=%d alpha=%.3f clips=%d user=%d layer=%@\n",
+    
+    NSString *extra = @"";
+    if ([view isKindOfClass:[UILabel class]] && ((UILabel *)view).text.length > 0) {
+        extra = [NSString stringWithFormat:@"text=\"%@\" ", ((UILabel *)view).text];
+    } else if ([view isKindOfClass:[UIButton class]] && ((UIButton *)view).currentTitle.length > 0) {
+        extra = [NSString stringWithFormat:@"text=\"%@\" ", ((UIButton *)view).currentTitle];
+    } else if (view.accessibilityLabel.length > 0) {
+        extra = [NSString stringWithFormat:@"label=\"%@\" ", view.accessibilityLabel];
+    }
+    
+    [out appendFormat:@"%@%@ %@ frame=%@ bounds=%@ vc=%@ %@ %@hidden=%d alpha=%.3f clips=%d user=%d layer=%@\n",
      indent,
      DKClassName(view),
      DKStringFromPointer((__bridge const void *)view),
@@ -320,6 +330,7 @@ static void DKAppendViewTreeText(UIView *view, NSUInteger depth, NSMutableString
      NSStringFromCGRect(view.bounds),
      vc ? DKClassName(vc) : @"",
      vc ? DKStringFromPointer((__bridge const void *)vc) : @"",
+     extra,
      view.hidden,
      view.alpha,
      view.clipsToBounds,
@@ -548,6 +559,53 @@ static NSString *DKTabBarSummaryText(UIView *bar) {
     return out;
 }
 
+
+#pragma mark - 内置探针：全局异常扫描 (Anomalies)
+
+static void DKCollectAnomaliesFromView(UIView *v, NSMutableString *out, CGRect windowRect) {
+    if (!v || v.hidden || v.alpha < 0.05) return;
+    
+    CGRect rectInWindow = [v convertRect:v.bounds toView:nil];
+    BOOL isZeroSize = (v.bounds.size.width == 0 || v.bounds.size.height == 0);
+    
+    // 1. 尺寸为 0 但未隐藏 (过滤掉 0 尺寸的占位符，通常如果是 0 尺寸且 userInteractionEnabled 会有问题)
+    if (isZeroSize && v.userInteractionEnabled) {
+        [out appendFormat:@"[ZeroSize] %@ frame=%@ vc=%@\n", 
+         NSStringFromClass([v class]), NSStringFromCGRect(v.frame), NSStringFromClass([DKViewControllerForView(v) class])];
+    }
+    
+    // 2. 越界 (完全在屏幕外)
+    if (!isZeroSize && !CGRectIntersectsRect(rectInWindow, windowRect)) {
+        // 排除 UITableView / UICollectionView 的隐藏 cell，或者被 ScrollView 裁剪的
+        BOOL isScrollCell = NO;
+        UIResponder *r = v;
+        while (r && ![r isKindOfClass:[UIScrollView class]]) { r = r.nextResponder; }
+        if (r) isScrollCell = YES;
+        
+        if (!isScrollCell) {
+            [out appendFormat:@"[Offscreen] %@ frame=%@ abs=%@\n", 
+             NSStringFromClass([v class]), NSStringFromCGRect(v.frame), NSStringFromCGRect(rectInWindow)];
+        }
+    }
+    
+    for (UIView *sub in v.subviews) {
+        DKCollectAnomaliesFromView(sub, out, windowRect);
+    }
+}
+
+static NSString *DKCaptureAnomaliesProbe(UIWindow *window) {
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"# Global Anomalies Probe\n"];
+    [out appendString:@"# 自动扫描：尺寸为0的交互、完全越界(不在屏幕上)的视图\n\n"];
+    if (!window) { [out appendString:@"(no window)\n"]; return out; }
+    
+    DKCollectAnomaliesFromView(window, out, window.bounds);
+    if (out.length < 80) {
+        [out appendString:@"(No obvious anomalies detected)\n"];
+    }
+    return out;
+}
+
 static NSString *DKCaptureTabBarProbe(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# TabBar probe (generic)\n"];
@@ -585,6 +643,9 @@ static void DKRegisterBuiltinProbes(void) {
     dispatch_once(&once, ^{
         DKRegisterProbe(@"tabbar", ^NSString *(UIWindow *window) {
             return DKCaptureTabBarProbe(window);
+        });
+        DKRegisterProbe(@"anomalies", ^NSString *(UIWindow *window) {
+            return DKCaptureAnomaliesProbe(window);
         });
     });
 }
