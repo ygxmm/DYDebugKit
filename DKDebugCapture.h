@@ -48,6 +48,9 @@ extern "C" {
 /// 前台全部可见窗口（排除调试自身窗口），按系统返回顺序。
 /// 探针必须逐个看：浮层窗口（如 AWEDPlayerPiPWindow，windowLevel 2000）盖在主窗口之上，
 /// 只看 key 窗口会把它当成不存在。
+/// 记录最后一次点击命中的 View 及坐标（供 Hit-test 探针使用）
+void DKRecordHitTest(UIView *hitView, CGPoint point);
+
 NSArray<UIWindow *> *DKDebugActiveWindows(void);
 
 /// 前台 key 窗口（排除调试自身窗口）。

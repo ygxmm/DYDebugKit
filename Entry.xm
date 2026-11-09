@@ -583,7 +583,6 @@ static void DYScanWindowsPeriodically(void) {
 
 // === 监听全局触摸事件 ===
 #import <objc/runtime.h>
-void DKRecordHitTest(UIView *hitView, CGPoint point);
 
 %hook UIWindow
 - (void)sendEvent:(UIEvent *)event {
