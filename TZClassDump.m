@@ -7,6 +7,7 @@
 //
 
 #import "TZClassDump.h"
+#import <dlfcn.h>
 #import <CoreFoundation/CoreFoundation.h>
 
 static NSString *DKCString(const char *value) {
