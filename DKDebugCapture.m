@@ -618,7 +618,7 @@ static void DKCollectAnomaliesFromView(UIView *v, NSMutableString *out, CGRect w
 #pragma mark - 内置探针：最后一次点击命中 (Hit Test)
 
 static UIView *gLastHitView = nil;
-static CGPoint gLastHitPoint = CGPointZero;
+static CGPoint gLastHitPoint = {0, 0};
 static NSDate *gLastHitTime = nil;
 
 void DKRecordHitTest(UIView *hitView, CGPoint point) {
