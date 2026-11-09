@@ -413,7 +413,7 @@ TZDebugExportResult *TZDebugCreateExport(TZDebugExportContext *context,
 
     DKExportSink *sink = [[DKExportSink alloc] initWithRootDir:rootDir];
     DKWriteString(sink, @"README.txt", DKReadme(context, mode), mode == TZDebugExportModeAudio);
-    DKWriteData(sink, @"ui/screenshot.png", context.screenshotPNG, NO);
+    if (mode != TZDebugExportModeAllClasses) { DKWriteData(sink, @"ui/screenshot.png", context.screenshotPNG, NO); }
     {
         NSDictionary<NSString *, NSString *> *probes = context.probes;
         if (probes.count == 0 && context.probeText.length) {
@@ -432,9 +432,10 @@ TZDebugExportResult *TZDebugCreateExport(TZDebugExportContext *context,
     if (mode == TZDebugExportModeAudio) {
         DKWriteAudioFiles(sink, context.audioCapture, progress);
     } else if (mode == TZDebugExportModeAllClasses) {
+        // 【核心修改】全量 ClassDump 模式：直接调用，绝不写多余的页面探针和截图
         DKWriteAllClasses(sink, progress);
-        DKWritePageFiles(sink, context, progress);
     } else {
+        // 本页导出模式：包含截图、树、探针等
         DKWritePageFiles(sink, context, progress);
     }
 
