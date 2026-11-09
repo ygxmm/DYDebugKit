@@ -17,6 +17,8 @@
 
 static NSMutableSet<NSString *> *gPageSwiftClasses = nil;
 
+void DKRecordHitTest(UIView *hitView, CGPoint point);
+
 @implementation DKDebugExportContext
 @end
 
@@ -612,6 +614,49 @@ static void DKCollectAnomaliesFromView(UIView *v, NSMutableString *out, CGRect w
     }
 }
 
+
+#pragma mark - 内置探针：最后一次点击命中 (Hit Test)
+
+static UIView *gLastHitView = nil;
+static CGPoint gLastHitPoint = CGPointZero;
+static NSDate *gLastHitTime = nil;
+
+void DKRecordHitTest(UIView *hitView, CGPoint point) {
+    gLastHitView = hitView;
+    gLastHitPoint = point;
+    gLastHitTime = [NSDate date];
+}
+
+static NSString *DKCaptureHitTestProbe(UIWindow *window) {
+    NSMutableString *out = [NSMutableString string];
+    [out appendString:@"# Touch Hit Test Probe\n"];
+    [out appendString:@"# 记录用户在点击悬浮球导出前，最后一次触摸屏幕命中的视图\n\n"];
+    
+    if (!gLastHitView || !gLastHitTime) {
+        [out appendString:@"(No touch recorded yet)\n"];
+        return out;
+    }
+    
+    [out appendFormat:@"Touch Point: %@\n", NSStringFromCGPoint(gLastHitPoint)];
+    [out appendFormat:@"Time: %@\n\n", gLastHitTime];
+    
+    [out appendString:@"--- Hit View Info ---\n"];
+    [out appendFormat:@"Class: %@\n", NSStringFromClass([gLastHitView class])];
+    [out appendFormat:@"Frame: %@\n", NSStringFromCGRect(gLastHitView.frame)];
+    
+    [out appendString:@"\n--- Responder Chain (点击事件传给谁) ---\n"];
+    UIResponder *r = gLastHitView;
+    int depth = 0;
+    while (r && depth < 15) {
+        [out appendFormat:@"%@[%d] %@\n", 
+         (depth == 0 ? @"> " : @"  "), depth, NSStringFromClass([r class])];
+        r = r.nextResponder;
+        depth++;
+    }
+    
+    return out;
+}
+
 static NSString *DKCaptureAnomaliesProbe(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
     [out appendString:@"# Global Anomalies Probe\n"];
@@ -666,6 +711,9 @@ static void DKRegisterBuiltinProbes(void) {
         });
         DKRegisterProbe(@"anomalies", ^NSString *(UIWindow *window) {
             return DKCaptureAnomaliesProbe(window);
+        });
+        DKRegisterProbe(@"touch", ^NSString *(UIWindow *window) {
+            return DKCaptureHitTestProbe(window);
         });
     });
 }

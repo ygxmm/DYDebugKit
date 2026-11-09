@@ -580,6 +580,28 @@ static void DYScanWindowsPeriodically(void) {
 
 #pragma mark - Constructor
 
+
+// === 监听全局触摸事件 ===
+#import <objc/runtime.h>
+void DKRecordHitTest(UIView *hitView, CGPoint point);
+
+%hook UIWindow
+- (void)sendEvent:(UIEvent *)event {
+    %orig;
+    if (event.type == UIEventTypeTouches) {
+        NSSet *touches = [event allTouches];
+        UITouch *touch = [touches anyObject];
+        if (touch && touch.phase == UITouchPhaseEnded) {
+            CGPoint point = [touch locationInView:self];
+            UIView *hitView = [self hitTest:point withEvent:event];
+            if (hitView) {
+                DKRecordHitTest(hitView, point);
+            }
+        }
+    }
+}
+%end
+
 %ctor {
     NSString *bid = [NSBundle mainBundle].bundleIdentifier ?: @"?";
     BOOL en = DYIsCurrentAppEnabled();
