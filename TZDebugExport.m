@@ -312,33 +312,57 @@ DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
 #pragma mark - 全部类导出
 
 static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *text)) {
-    NSMutableString *logStr = [NSMutableString string];
-    [logStr appendString:@"=== TZ ClassDump Debug Log ===\n"];
+    if (progress) progress(@"正在极速获取全量类并按模块分组...");
     
-    if (progress) progress(@"正在极速获取全量类...");
+    extern NSDictionary<NSString *, NSArray<NSValue *> *> *TZClassDumpGroupedClasses(void);
+    NSDictionary<NSString *, NSArray<NSValue *> *> *groupedClasses = TZClassDumpGroupedClasses();
     
-    extern NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
-    NSArray<NSValue *> *allClassValues = TZClassDumpAllClassesFromMachO();
+    NSUInteger totalImages = groupedClasses.count;
+    NSUInteger currentImage = 0;
     
-    [logStr appendFormat:@"获取到原始类指针数量: %lu\n", (unsigned long)allClassValues.count];
-    if (progress) progress([NSString stringWithFormat:@"提取到 %lu 个唯一类，准备解析...", (unsigned long)allClassValues.count]);
-    
-    NSMutableArray<NSString *> *allClassNames = [NSMutableArray arrayWithCapacity:allClassValues.count];
-    for (NSValue *val in allClassValues) {
-        Class cls = (__bridge Class)[val pointerValue];
-        if (cls) {
-            NSString *name = NSStringFromClass(cls);
-            if (name.length > 0) [allClassNames addObject:name];
+    for (NSString *imageName in groupedClasses.allKeys) {
+        currentImage++;
+        NSArray<NSValue *> *classValues = groupedClasses[imageName];
+        NSString *safeImageName = [DKSafeFileName(imageName) stringByReplacingOccurrencesOfString:@".dylib" withString:@""];
+        
+        NSUInteger totalClasses = classValues.count;
+        
+        // 按模块分类写入，进度条显示当前模块进度
+        if (progress) {
+            progress([NSString stringWithFormat:@"导出 [%@] %lu/%lu", safeImageName, (unsigned long)currentImage, (unsigned long)totalImages]);
+        }
+        
+        for (NSUInteger i = 0; i < totalClasses; i++) {
+            Class cls = (__bridge Class)[classValues[i] pointerValue];
+            if (!cls) continue;
+            
+            NSString *className = NSStringFromClass(cls);
+            if (!className.length) continue;
+            
+            // 过滤掉系统级别无意义的类，减少文件量
+            if ([className hasPrefix:@"NS"] || [className hasPrefix:@"UI"] || 
+                [className hasPrefix:@"_"] || [className hasPrefix:@"CA"] || 
+                [className hasPrefix:@"Swift"]) {
+                continue;
+            }
+            
+            @autoreleasepool {
+                @try {
+                    extern NSString *TZClassDumpHeaderForClass(Class cls);
+                    NSString *header = TZClassDumpHeaderForClass(cls);
+                    if (header.length > 0) {
+                        // 按模块建文件夹
+                        NSString *relative = [NSString stringWithFormat:@"page/classes/%@/%@.h", safeImageName, className];
+                        DKWriteString(sink, relative, header, NO);
+                    }
+                } @catch (NSException *e) {
+                    NSLog(@"[TZClassDump] Error: %@", e.reason);
+                }
+            }
         }
     }
     
-    [logStr appendFormat:@"去重后准备导出的类名数量: %lu\n", (unsigned long)allClassNames.count];
-    
-    // 调用分批写入
-    DKWritePageClasses(sink, allClassNames, progress);
-    
-    [logStr appendString:@"=== 导出完成 ===\n"];
-    DKWriteString(sink, @"probe/classdump_debug.log", logStr, NO);
+    if (progress) progress(@"全量类导出完成 (100%)");
 }
 
 #pragma mark - 音频内容

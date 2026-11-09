@@ -33,6 +33,7 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
 
 /// 统计每个 image 的类数量（Phase 1 验证用）
 NSDictionary<NSString *, NSNumber *> *TZClassDumpCountClassesPerImage(void);
+NSDictionary<NSString *, NSArray<NSValue *> *> *TZClassDumpGroupedClasses(void);
 
 #ifdef __cplusplus
 }

@@ -674,3 +674,32 @@ NSString *TZClassDumpHeaderForClass(Class cls) {
     return DKHeaderForClass(cls, imageName);
 }
 // DK_WARNING_CLEANUP
+NSDictionary<NSString *, NSArray<NSValue *> *> *TZClassDumpGroupedClasses(void) {
+    NSMutableDictionary<NSString *, NSMutableArray<NSValue *> *> *grouped = [NSMutableDictionary dictionary];
+    
+    int numClasses = objc_getClassList(NULL, 0);
+    if (numClasses > 0) {
+        Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
+        numClasses = objc_getClassList(classes, numClasses);
+        for (int i = 0; i < numClasses; i++) {
+            Class cls = classes[i];
+            if (!cls) continue;
+            
+            Dl_info info;
+            NSString *imageName = @"Unknown";
+            if (dladdr((__bridge const void *)cls, &info) && info.dli_fname) {
+                NSString *path = [NSString stringWithUTF8String:info.dli_fname];
+                imageName = [path lastPathComponent];
+                if (!imageName.length) imageName = @"Unknown";
+            }
+            
+            if (!grouped[imageName]) {
+                grouped[imageName] = [NSMutableArray array];
+            }
+            [grouped[imageName] addObject:[NSValue valueWithPointer:(__bridge const void *)cls]];
+        }
+        free(classes);
+    }
+    
+    return grouped;
+}
