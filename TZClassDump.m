@@ -596,7 +596,7 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
         for (int i = 0; i < numClasses; i++) {
             Class cls = classes[i];
             if (cls) {
-                NSValue *val = [NSValue valueWithPointer:cls];
+                NSValue *val = [NSValue valueWithPointer:(__bridge const void *)cls];
                 if (![result containsObject:val]) {
                     [result addObject:val];
                 }

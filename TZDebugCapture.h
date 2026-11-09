@@ -11,6 +11,8 @@
 
 #import <UIKit/UIKit.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 @class TZAudioProbeCapture;
 
 /// 一次页面快照的产物（纯数据；序列化由 TZDebugExport 负责）。
@@ -49,7 +51,7 @@ extern "C" {
 /// 探针必须逐个看：浮层窗口（如 AWEDPlayerPiPWindow，windowLevel 2000）盖在主窗口之上，
 /// 只看 key 窗口会把它当成不存在。
 /// 记录最后一次点击命中的 View 及坐标（供 Hit-test 探针使用）
-void DKRecordHitTest(UIView *hitView, CGPoint point);
+void DKRecordHitTest(UIView * _Nullable hitView, CGPoint point);
 
 NSArray<UIWindow *> *TZDebugActiveWindows(void);
 
@@ -68,6 +70,8 @@ TZDebugExportContext *TZDebugCaptureMetadataContext(UIWindow *targetWindow);
 #ifdef __cplusplus
 }
 #endif
+
+NS_ASSUME_NONNULL_END
 
 #endif /* TZDebugCapture_h */
 
