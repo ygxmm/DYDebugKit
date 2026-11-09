@@ -588,6 +588,23 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 // 运行时指针已重定位，直接解引用，不需要自己算 base address
 NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
     NSMutableArray<NSValue *> *result = [NSMutableArray array];
+    
+    int numClasses = objc_getClassList(NULL, 0);
+    if (numClasses > 0) {
+        Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
+        numClasses = objc_getClassList(classes, numClasses);
+        for (int i = 0; i < numClasses; i++) {
+            Class cls = classes[i];
+            if (cls) {
+                NSValue *val = [NSValue valueWithPointer:cls];
+                if (![result containsObject:val]) {
+                    [result addObject:val];
+                }
+            }
+        }
+        free(classes);
+    }
+
     uint32_t imageCount = _dyld_image_count();
 
     for (uint32_t i = 0; i < imageCount; i++) {
