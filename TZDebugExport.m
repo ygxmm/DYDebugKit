@@ -312,19 +312,22 @@ DKWriteString(sink, @"page/view-tree.txt", context.viewTreeText, NO);
 #pragma mark - 全部类导出
 
 static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *text)) {
+    // 关键修复：在异步块中使用 __block 强引用 sink，防止其被过早释放
+    __block DKExportSink *strongSink = sink;
+    
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         void (^updateProgress)(NSString *) = ^(NSString *msg) {
             if (progress) {
                 dispatch_async(dispatch_get_main_queue(), ^{ progress(msg); });
             }
         };
-        
+
         updateProgress(@"正在极速获取全量类...");
         extern NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void);
         NSArray<NSValue *> *allClassValues = TZClassDumpAllClassesFromMachO();
-        
-        updateProgress([NSString stringWithFormat:@"提取到 %lu 个类，正在准备解析...", (unsigned long)allClassValues.count]);
-        
+
+        updateProgress([NSString stringWithFormat:@"提取到 %lu 个唯一类，准备解析...", (unsigned long)allClassValues.count]);
+
         NSMutableArray<NSString *> *allClassNames = [NSMutableArray arrayWithCapacity:allClassValues.count];
         for (NSValue *val in allClassValues) {
             Class cls = (__bridge Class)[val pointerValue];
@@ -333,9 +336,9 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                 if (name.length > 0) [allClassNames addObject:name];
             }
         }
-        
-        // 将 updateProgress 传进去，实现实时进度
-        DKWritePageClasses(sink, allClassNames, updateProgress);
+
+        DKWritePageClasses(strongSink, allClassNames, updateProgress);
+        strongSink = nil; // 释放
     });
 }
 

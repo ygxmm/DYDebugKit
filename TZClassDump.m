@@ -587,11 +587,10 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 // 遍历所有已加载 image 的 __objc_classlist，返回 class_t* 数组
 // 运行时指针已重定位，直接解引用，不需要自己算 base address
 NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
-    NSMutableArray<NSValue *> *result = [NSMutableArray array];
-    
-    NSMutableSet<NSString *> *seenNames = [NSMutableSet set];
-    
-    // 1. 先用 objc_getClassList 极速全量收集类名
+    // 核心优化：用 Dictionary 按类名去重，防止几万个类重复解析
+    NSMutableDictionary<NSString *, NSValue *> *dict = [NSMutableDictionary dictionary];
+
+    // 1. 先用 objc_getClassList 极速全量收集
     int numClasses = objc_getClassList(NULL, 0);
     if (numClasses > 0) {
         Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
@@ -600,14 +599,16 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
             Class cls = classes[i];
             if (cls) {
                 NSString *name = NSStringFromClass(cls);
-                if (name.length > 0) [seenNames addObject:name];
+                if (name.length > 0) {
+                    dict[name] = [NSValue valueWithPointer:(__bridge const void *)cls];
+                }
             }
         }
         free(classes);
     }
 
+    // 2. 遍历 Mach-O 静态类列表
     uint32_t imageCount = _dyld_image_count();
-
     for (uint32_t i = 0; i < imageCount; i++) {
         const struct mach_header *h = _dyld_get_image_header(i);
         if (!h || h->magic != MH_MAGIC_64) continue;
@@ -623,10 +624,19 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
         uintptr_t *end = classlist + (size / sizeof(uintptr_t));
         for (uintptr_t *p = classlist; p < end; p++) {
             uintptr_t cls = *p;
-            if (cls) [result addObject:[NSValue valueWithPointer:(void *)cls]];
+            if (cls) {
+                Class c = (__bridge Class)(void *)cls;
+                if (c) {
+                    NSString *name = NSStringFromClass(c);
+                    if (name.length > 0) {
+                        dict[name] = [NSValue valueWithPointer:(void *)cls];
+                    }
+                }
+            }
         }
     }
-    return result;
+    
+    return [dict allValues];
 }
 
 // Phase 1 测试：统计每个 image 的类数量
