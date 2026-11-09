@@ -589,6 +589,9 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
     NSMutableArray<NSValue *> *result = [NSMutableArray array];
     
+    NSMutableSet<NSString *> *seenNames = [NSMutableSet set];
+    
+    // 1. 先用 objc_getClassList 极速全量收集类名
     int numClasses = objc_getClassList(NULL, 0);
     if (numClasses > 0) {
         Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
@@ -596,10 +599,8 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
         for (int i = 0; i < numClasses; i++) {
             Class cls = classes[i];
             if (cls) {
-                NSValue *val = [NSValue valueWithPointer:(__bridge const void *)cls];
-                if (![result containsObject:val]) {
-                    [result addObject:val];
-                }
+                NSString *name = NSStringFromClass(cls);
+                if (name.length > 0) [seenNames addObject:name];
             }
         }
         free(classes);

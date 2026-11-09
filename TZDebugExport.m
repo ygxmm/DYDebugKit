@@ -222,18 +222,54 @@ static NSString *DKReadme(TZDebugExportContext *context, TZDebugExportMode mode)
     return text;
 }
 static void DKWritePageClasses(DKExportSink *sink, NSArray<NSString *> *classNames) {
-    for (NSString *name in [classNames sortedArrayUsingSelector:@selector(compare:)]) {
-        @autoreleasepool {
-            @try {
-                Class cls = NSClassFromString(name);
-                NSString *header = cls ? TZClassDumpHeaderForClass(cls) : nil;
-                if (!header.length) continue;
-                NSString *relative = [@"page/classes" stringByAppendingPathComponent:
-                                      [DKSafeFileName(name) stringByAppendingString:@".h"]];
-                DKWriteString(sink, relative, header, NO);
-            } @catch (NSException *exception) {
-                DKRecordError(sink, name, @"page-class",
-                              DKMakeExportError(20, exception.reason ?: @"类头文件导出异常", nil), NO);
+    if (!classNames || classNames.count == 0) return;
+    NSArray *sortedNames = [classNames sortedArrayUsingSelector:@selector(compare:)];
+    
+    // 如果类数量极大（all-classes模式），采用分批合并写入，防止写几万个文件卡死
+    if (sortedNames.count > 1000) {
+        NSUInteger batchSize = 2000;
+        NSUInteger total = sortedNames.count;
+        
+        for (NSUInteger i = 0; i < total; i += batchSize) {
+            NSUInteger length = MIN(batchSize, total - i);
+            NSArray *batch = [sortedNames subarrayWithRange:NSMakeRange(i, length)];
+            
+            NSMutableString *hugeStr = [NSMutableString stringWithCapacity:1024 * 1024 * 5]; // 预分配 5MB
+            [hugeStr appendFormat:@"// TZ Universal Class Dump - Part %lu\n\n", (unsigned long)(i/batchSize + 1)];
+            
+            for (NSString *name in batch) {
+                @autoreleasepool {
+                    @try {
+                        Class cls = NSClassFromString(name);
+                        NSString *header = cls ? TZClassDumpHeaderForClass(cls) : nil;
+                        if (header.length > 0) {
+                            [hugeStr appendString:header];
+                            [hugeStr appendString:@"\n\n"];
+                        }
+                    } @catch (NSException *exception) {
+                        DKRecordError(sink, name, @"page-class",
+                                      DKMakeExportError(20, exception.reason ?: @"类头文件导出异常", nil), NO);
+                    }
+                }
+            }
+            NSString *fileName = [NSString stringWithFormat:@"page/classes/AllClasses_Part%lu.h", (unsigned long)(i/batchSize + 1)];
+            DKWriteString(sink, fileName, hugeStr, NO);
+        }
+    } else {
+        // 页面级导出，数量少，保持一个类一个文件
+        for (NSString *name in sortedNames) {
+            @autoreleasepool {
+                @try {
+                    Class cls = NSClassFromString(name);
+                    NSString *header = cls ? TZClassDumpHeaderForClass(cls) : nil;
+                    if (!header.length) continue;
+                    NSString *relative = [@"page/classes" stringByAppendingPathComponent:
+                                          [DKSafeFileName(name) stringByAppendingString:@".h"]];
+                    DKWriteString(sink, relative, header, NO);
+                } @catch (NSException *exception) {
+                    DKRecordError(sink, name, @"page-class",
+                                  DKMakeExportError(20, exception.reason ?: @"类头文件导出异常", nil), NO);
+                }
             }
         }
     }
