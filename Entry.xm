@@ -65,10 +65,9 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    self.button = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.button = [UIButton buttonWithType:UIButtonTypeCustom];
     self.button.frame = CGRectMake(0, 0, 48.0, 48.0);
     self.button.backgroundColor = [UIColor clearColor];
-    self.button.tintColor = UIColor.whiteColor;
     self.button.layer.cornerRadius = 24.0;
     self.button.layer.masksToBounds = NO;
     self.button.layer.shadowColor = UIColor.blackColor.CGColor;
@@ -76,19 +75,15 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     self.button.layer.shadowOffset = CGSizeMake(0, 3);
     self.button.layer.shadowRadius = 6.0;
 
-    UIVisualEffectView *blurBg = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark]];
+    UIVisualEffectView *blurBg = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialLight]];
     blurBg.frame = self.button.bounds;
     blurBg.layer.cornerRadius = 24.0;
     blurBg.layer.masksToBounds = YES;
     blurBg.userInteractionEnabled = NO;
     [self.button insertSubview:blurBg atIndex:0];
 
-    UIImage *icon = [UIImage systemImageNamed:@"ladybug.fill"];
-    if (icon == nil) icon = [UIImage systemImageNamed:@"ant.fill"];
-    if (icon == nil) icon = [UIImage systemImageNamed:@"search"];
-    [self.button setImage:icon forState:UIControlStateNormal];
-    self.button.imageView.contentMode = UIViewContentModeScaleAspectFit;
-    self.button.imageEdgeInsets = UIEdgeInsetsMake(12, 12, 12, 12);
+    [self.button setTitle:@"🐞" forState:UIControlStateNormal];
+    self.button.titleLabel.font = [UIFont systemFontOfSize:24];
     [self.button addTarget:self
                     action:@selector(debugTapped)
           forControlEvents:UIControlEventTouchUpInside];
@@ -176,38 +171,83 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 #pragma mark - 弹出功能菜单
 
 - (void)debugTapped {
-    if (self.presentedViewController != nil) return;
+    UIWindow *win = self.view.window;
+    if (win == nil) return;
+    
+    UIView *overlay = [[UIView alloc] initWithFrame:win.bounds];
+    overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
+    overlay.alpha = 0;
+    overlay.tag = 88881;
+    [win addSubview:overlay];
+    [overlay addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(hideMenu)]];
+    
+    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(16, win.bounds.size.height, win.bounds.size.width - 32, 190)];
+    card.layer.cornerRadius = 20;
+    card.layer.masksToBounds = YES;
+    card.tag = 88882;
+    
+    UIVisualEffectView *blur = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialDark]];
+    blur.frame = card.bounds;
+    blur.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [card addSubview:blur];
+    
+    UIButton *b1 = [UIButton buttonWithType:UIButtonTypeSystem];
+    b1.frame = CGRectMake(0, 10, card.bounds.size.width, 60);
+    [b1 setTitle:@"📄 导出本页头文件" forState:UIControlStateNormal];
+    [b1 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    b1.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+    [b1 addTarget:self action:@selector(menuExportPage) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:b1];
+    
+    UIButton *b2 = [UIButton buttonWithType:UIButtonTypeSystem];
+    b2.frame = CGRectMake(0, 70, card.bounds.size.width, 60);
+    [b2 setTitle:@"📦 导出全部 ClassDump" forState:UIControlStateNormal];
+    [b2 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    b2.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+    [b2 addTarget:self action:@selector(menuExportAll) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:b2];
+    
+    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(20, 130, card.bounds.size.width - 40, 1)];
+    line.backgroundColor = [UIColor colorWithWhite:1 alpha:0.15];
+    [card addSubview:line];
+    
+    UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
+    cancel.frame = CGRectMake(0, 135, card.bounds.size.width, 50);
+    [cancel setTitle:@"取消" forState:UIControlStateNormal];
+    [cancel setTitleColor:[UIColor lightGrayColor] forState:UIControlStateNormal];
+    [cancel addTarget:self action:@selector(hideMenu) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:cancel];
+    
+    [win addSubview:card];
+    
+    [UIView animateWithDuration:0.25 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        overlay.alpha = 1.0;
+        card.frame = CGRectMake(16, win.bounds.size.height - 190 - 34, win.bounds.size.width - 32, 190);
+    } completion:nil];
+}
 
-    UIAlertController *sheet =
-        [UIAlertController alertControllerWithTitle:@"tzyhb"
-                                           message:@"选择导出范围"
-                                    preferredStyle:UIAlertControllerStyleActionSheet];
+- (void)hideMenu {
+    UIWindow *win = self.view.window;
+    UIView *o = [win viewWithTag:88881];
+    UIView *c = [win viewWithTag:88882];
+    if (o == nil || c == nil) return;
+    [UIView animateWithDuration:0.2 animations:^{
+        o.alpha = 0;
+        c.frame = CGRectMake(16, win.bounds.size.height, win.bounds.size.width - 32, 190);
+    } completion:^(BOOL finished) {
+        [o removeFromSuperview];
+        [c removeFromSuperview];
+    }];
+}
 
-    __weak typeof(self) weakSelf = self;
+- (void)menuExportPage {
+    [self hideMenu];
+    [self performExportWithMode:TZDebugExportModePage];
+}
 
-    [sheet addAction:[UIAlertAction actionWithTitle:@"① 导出本页头文件"
-                                              style:UIAlertActionStyleDefault
-                                            handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithMode:TZDebugExportModePage];
-    }]];
-
-    [sheet addAction:[UIAlertAction actionWithTitle:@"② 导出全部 ClassDump"
-                                              style:UIAlertActionStyleDefault
-                                            handler:^(UIAlertAction *action) {
-        [weakSelf performExportWithMode:TZDebugExportModeAllClasses];
-    }]];
-
-    [sheet addAction:[UIAlertAction actionWithTitle:@"取消"
-                                              style:UIAlertActionStyleCancel
-                                            handler:nil]];
-
-    if (sheet.popoverPresentationController) {
-        sheet.popoverPresentationController.sourceView = self.button;
-        sheet.popoverPresentationController.sourceRect = self.button.bounds;
-        sheet.popoverPresentationController.permittedArrowDirections = 0;
-    }
-
-    [self presentViewController:sheet animated:YES completion:nil];
+- (void)menuExportAll {
+    [self hideMenu];
+    [self performExportWithMode:TZDebugExportModeAllClasses];
 }
 
 #pragma mark - 执行导出
