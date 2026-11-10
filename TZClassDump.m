@@ -30,7 +30,7 @@ static NSString *DKCString(const char *value) {
 static CFSetRef TZValidClassSet = NULL;
 static pthread_mutex_t TZValidClassLock = PTHREAD_MUTEX_INITIALIZER;
 
-static void TZRefreshValidClassSet(void) {
+void TZRefreshValidClassSet(void) {
     int n = objc_getClassList(NULL, 0);
     if (n <= 0) return;
     Class *classes = (Class *)malloc(sizeof(Class) * (size_t)n);
@@ -51,7 +51,7 @@ static void TZRefreshValidClassSet(void) {
     pthread_mutex_unlock(&TZValidClassLock);
 }
 
-static BOOL TZIsValidClass(Class cls) {
+BOOL TZIsValidClass(Class cls) {
     if (!cls) return NO;
     pthread_mutex_lock(&TZValidClassLock);
     BOOL ok = (TZValidClassSet != NULL) &&
@@ -61,7 +61,7 @@ static BOOL TZIsValidClass(Class cls) {
 }
 
 // 只对 runtime 活着的 Class 调用；用 class_getName 避开 Swift demangle 崩溃路径
-static NSString *TZSafeClassName(Class cls) {
+NSString *TZSafeClassName(Class cls) {
     if (!TZIsValidClass(cls)) return nil;
     const char *name = class_getName(cls);
     if (!name || name[0] == '\0') return nil;

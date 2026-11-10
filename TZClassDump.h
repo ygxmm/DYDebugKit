@@ -39,4 +39,9 @@ NSDictionary<NSString *, NSArray<NSValue *> *> *TZClassDumpGroupedClasses(void);
 }
 #endif
 
+
+FOUNDATION_EXPORT void TZRefreshValidClassSet(void);
+FOUNDATION_EXPORT BOOL TZIsValidClass(Class cls);
+FOUNDATION_EXPORT NSString *TZSafeClassName(Class cls);
+
 #endif /* TZClassDump_h */

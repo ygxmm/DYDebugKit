@@ -340,7 +340,7 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
             Class cls = (__bridge Class)[classValues[i] pointerValue];
             if (!cls) continue;
             
-            NSString *className = NSStringFromClass(cls);
+            NSString *className = TZSafeClassName(cls);
             if (!className.length) continue;
             
             @autoreleasepool {
@@ -395,6 +395,8 @@ TZDebugExportResult *TZDebugCreateExport(TZDebugExportContext *context,
                                          TZDebugExportMode mode,
                                          void (^progress)(NSString *text),
                                          NSError **error) {
+    TZRefreshValidClassSet();
+
     if (!context || (mode == TZDebugExportModeAudio && !context.audioCapture)) {
         if (error) *error = DKMakeExportError(1, @"导出上下文不完整", nil);
         return nil;
