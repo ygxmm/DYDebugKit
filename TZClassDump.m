@@ -611,8 +611,14 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
     // 2. 遍历 Mach-O 静态类列表
     uint32_t imageCount = _dyld_image_count();
     for (uint32_t i = 0; i < imageCount; i++) {
+        const char *name = _dyld_get_image_name(i);
+        if (name == NULL) continue;
+        NSString *ipath = [NSString stringWithUTF8String:name];
+        BOOL isApp = ipath && ([ipath containsString:@"/containers/Bundle/Application/"] || [ipath containsString:@"/TweakInject/"] || [ipath containsString:@2/.jbroot-"]);
+        if (isApp == NO) continue;
+
         const struct mach_header *h = _dyld_get_image_header(i);
-        if (!h || h->magic != MH_MAGIC_64) continue;
+        if (h == NULL || h->magic != MH_MAGIC_64) continue;
         const struct mach_header_64 *h64 = (const struct mach_header_64 *)h;
 
         unsigned long size = 0;
@@ -647,11 +653,15 @@ NSDictionary<NSString *, NSNumber *> *TZClassDumpCountClassesPerImage(void) {
     uint32_t imageCount = _dyld_image_count();
 
     for (uint32_t i = 0; i < imageCount; i++) {
-        const struct mach_header *h = _dyld_get_image_header(i);
-        if (!h || h->magic != MH_MAGIC_64) continue;
         const char *name = _dyld_get_image_name(i);
-        if (!name) continue;
-        NSString *imageName = [[NSString stringWithUTF8String:name] lastPathComponent];
+        if (name == NULL) continue;
+        NSString *ipath = [NSString stringWithUTF8String:name];
+        BOOL isApp = ipath && ([ipath containsString:@"/containers/Bundle/Application/"] || [ipath containsString:@"/TweakInject/"] || [ipath containsString:@2/.jbroot-"]);
+        if (isApp == NO) continue;
+
+        const struct mach_header *h = _dyld_get_image_header(i);
+        if (h == NULL || h->magic != MH_MAGIC_64) continue;
+        NSString *imageName = [ipath lastPathComponent];
         const struct mach_header_64 *h64 = (const struct mach_header_64 *)h;
 
         unsigned long size = 0;
