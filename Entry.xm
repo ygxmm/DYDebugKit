@@ -293,24 +293,18 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
                 else if ([text containsString:@"压缩 zip"]) { phase = @"压缩打包"; target = 0.99; }
                 else {
                     // 兼容 "导出 [PrototypeTools] 96/669" 这种基于数量的进度格式
-                    NSRegularExpression *re2 = [NSRegularExpression regularExpressionWithPattern:@"(\\d+)/(\\d+)" options:0 error:nil];
-                    NSTextCheckingResult *m2 = [re2 firstMatchInString:text options:0 range:NSMakeRange(0, text.length)];
-                    if (m2 && m2.numberOfRanges >= 3) {
-                        float cur = [[text substringWithRange:[m2 rangeAtIndex:1]] floatValue];
-                        float total = [[text substringWithRange:[m2 rangeAtIndex:2]] floatValue];
-                        if (total > 0) {
-                            float pct = cur / total;
-                            if ([text containsString:@"导出"] || [text containsString:@"写入"]) {
-                                phase = @"写入头文件";
-                                target = 0.15f + pct * 0.80f;
-                            } else {
-                                target = pct;
-                            }
-                        }
-                    }
-                }
-
-                NSRegularExpression *re = [NSRegularExpression
+                    NSArray *arr = [text componentsSeparatedByString:@"/"];
+if (arr.count == 2) {
+float total = [[arr[1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] floatValue];
+float cur = [[[arr[0] componentsSeparatedByString:@" "] lastObject] floatValue];
+if (total > 0) {
+float pct = cur / total;
+phase = @"写入头文件";
+target = 0.15f + pct * 0.80f;
+}
+}
+}
+NSRegularExpression *re = [NSRegularExpression
                     regularExpressionWithPattern:@"（([0-9.]+)%）" options:0 error:nil];
                 NSTextCheckingResult *m = [re firstMatchInString:text options:0
                                                            range:NSMakeRange(0, text.length)];

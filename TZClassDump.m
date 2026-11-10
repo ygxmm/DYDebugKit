@@ -700,7 +700,7 @@ NSDictionary<NSString *, NSArray<NSValue *> *> *TZClassDumpGroupedClasses(void) 
             NSString *imageName = @"Unknown";
             if (dladdr((__bridge const void *)cls, &info) && info.dli_fname) {
                 NSString *path = [NSString stringWithUTF8String:info.dli_fname];
-                imageName = [path lastPathComponent];
+                if (![path containsString:@"/containers/Bundle/Application/"] && ![path containsString:@"/TweakInject/"]) continue; imageName = [path lastPathComponent];
                 if (!imageName.length) imageName = @"Unknown";
             }
             
