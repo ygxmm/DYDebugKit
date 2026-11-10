@@ -67,12 +67,28 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     self.button = [UIButton buttonWithType:UIButtonTypeSystem];
     self.button.frame = CGRectMake(0, 0, 48.0, 48.0);
-    self.button.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.78];
+    self.button.backgroundColor = [UIColor clearColor];
     self.button.tintColor = UIColor.whiteColor;
     self.button.layer.cornerRadius = 24.0;
-    self.button.layer.masksToBounds = YES;
+    self.button.layer.masksToBounds = NO;
+    self.button.layer.shadowColor = UIColor.blackColor.CGColor;
+    self.button.layer.shadowOpacity = 0.3;
+    self.button.layer.shadowOffset = CGSizeMake(0, 3);
+    self.button.layer.shadowRadius = 6.0;
 
-    [self.button setTitle:@"⌘" forState:UIControlStateNormal];
+    UIVisualEffectView *blurBg = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark]];
+    blurBg.frame = self.button.bounds;
+    blurBg.layer.cornerRadius = 24.0;
+    blurBg.layer.masksToBounds = YES;
+    blurBg.userInteractionEnabled = NO;
+    [self.button insertSubview:blurBg atIndex:0];
+
+    UIImage *icon = [UIImage systemImageNamed:@"ladybug.fill"];
+    if (icon == nil) icon = [UIImage systemImageNamed:@"ant.fill"];
+    if (icon == nil) icon = [UIImage systemImageNamed:@"search"];
+    [self.button setImage:icon forState:UIControlStateNormal];
+    self.button.imageView.contentMode = UIViewContentModeScaleAspectFit;
+    self.button.imageEdgeInsets = UIEdgeInsetsMake(12, 12, 12, 12);
     [self.button addTarget:self
                     action:@selector(debugTapped)
           forControlEvents:UIControlEventTouchUpInside];
@@ -286,9 +302,14 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 280, 208)];
     box.center = CGPointMake(hud.bounds.size.width / 2.0, hud.bounds.size.height / 2.0);
-    box.backgroundColor = [UIColor colorWithWhite:0.08 alpha:0.95];
-    box.layer.cornerRadius = 18.0;
+    box.backgroundColor = [UIColor clearColor];
+    box.layer.cornerRadius = 20.0;
     box.layer.masksToBounds = YES;
+
+    UIVisualEffectView *hudBlur = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialDark]];
+    hudBlur.frame = box.bounds;
+    hudBlur.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [box insertSubview:hudBlur atIndex:0];
     box.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin
                          | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
 
@@ -311,7 +332,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     UIProgressView *bar = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
     bar.frame = CGRectMake(24, 106, 232, 6);
     bar.transform = CGAffineTransformMakeScale(1.0, 3.0);
-    bar.progressTintColor = [UIColor colorWithRed:0.20 green:0.60 blue:1.00 alpha:1.0];
+    bar.progressTintColor = [UIColor systemGreenColor];
     bar.trackTintColor = [UIColor colorWithWhite:0.22 alpha:1.0];
     bar.layer.cornerRadius = 3.0;
     bar.clipsToBounds = YES;
