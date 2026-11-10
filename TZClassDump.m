@@ -614,7 +614,7 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
         const char *name = _dyld_get_image_name(i);
         if (name == NULL) continue;
         NSString *ipath = [NSString stringWithUTF8String:name];
-        BOOL isApp = ipath && ([ipath containsString:@"/containers/Bundle/Application/"] || [ipath containsString:@"/TweakInject/"] || [ipath containsString:@2/.jbroot-"]);
+        BOOL isApp = ipath && ([ipath containsString:@"/containers/Bundle/Application/"] || [ipath containsString:@"/TweakInject/"] || [ipath containsString:@"/.jbroot-"]);
         if (isApp == NO) continue;
 
         const struct mach_header *h = _dyld_get_image_header(i);
@@ -656,7 +656,7 @@ NSDictionary<NSString *, NSNumber *> *TZClassDumpCountClassesPerImage(void) {
         const char *name = _dyld_get_image_name(i);
         if (name == NULL) continue;
         NSString *ipath = [NSString stringWithUTF8String:name];
-        BOOL isApp = ipath && ([ipath containsString:@"/containers/Bundle/Application/"] || [ipath containsString:@"/TweakInject/"] || [ipath containsString:@2/.jbroot-"]);
+        BOOL isApp = ipath && ([ipath containsString:@"/containers/Bundle/Application/"] || [ipath containsString:@"/TweakInject/"] || [ipath containsString:@"/.jbroot-"]);
         if (isApp == NO) continue;
 
         const struct mach_header *h = _dyld_get_image_header(i);
