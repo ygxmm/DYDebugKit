@@ -75,6 +75,7 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     self.button.layer.shadowOffset = CGSizeMake(0, 3);
     self.button.layer.shadowRadius = 6.0;
 
+    self.button.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.2];
     UIVisualEffectView *blurBg = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialLight]];
     blurBg.frame = self.button.bounds;
     blurBg.layer.cornerRadius = 24.0;
@@ -475,6 +476,9 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         (DYDebugOverlayController *)self.rootViewController;
 
     if (controller == nil) return NO;
+
+    // 如果存在自定义菜单遮罩，直接放行所有点击
+    if ([self viewWithTag:88881] != nil) return YES;
 
     if (controller.exporting) return YES;
     if (controller.presentedViewController != nil) return YES;
