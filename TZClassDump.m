@@ -54,6 +54,11 @@ void TZRefreshValidClassSet(void) {
 BOOL TZIsValidClass(Class cls) {
     if (!cls) return NO;
     pthread_mutex_lock(&TZValidClassLock);
+    if (TZValidClassSet == NULL) {
+        pthread_mutex_unlock(&TZValidClassLock);
+        TZRefreshValidClassSet();
+        pthread_mutex_lock(&TZValidClassLock);
+    }
     BOOL ok = (TZValidClassSet != NULL) &&
               CFSetContainsValue(TZValidClassSet, (__bridge const void *)cls);
     pthread_mutex_unlock(&TZValidClassLock);
