@@ -291,6 +291,24 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
                 else if ([text containsString:@"category 解析完成"]) { phase = @"category 完成"; target = 0.98; }
                 else if ([text containsString:@"写入音频采集结果"]) { phase = @"写入音频"; target = 0.90; }
                 else if ([text containsString:@"压缩 zip"]) { phase = @"压缩打包"; target = 0.99; }
+                else {
+                    // 兼容 "导出 [PrototypeTools] 96/669" 这种基于数量的进度格式
+                    NSRegularExpression *re2 = [NSRegularExpression regularExpressionWithPattern:@"(\\d+)/(\\d+)" options:0 error:nil];
+                    NSTextCheckingResult *m2 = [re2 firstMatchInString:text options:0 range:NSMakeRange(0, text.length)];
+                    if (m2 && m2.numberOfRanges >= 3) {
+                        float cur = [[text substringWithRange:[m2 rangeAtIndex:1]] floatValue];
+                        float total = [[text substringWithRange:[m2 rangeAtIndex:2]] floatValue];
+                        if (total > 0) {
+                            float pct = cur / total;
+                            if ([text containsString:@"导出"] || [text containsString:@"写入"]) {
+                                phase = @"写入头文件";
+                                target = 0.15f + pct * 0.80f;
+                            } else {
+                                target = pct;
+                            }
+                        }
+                    }
+                }
 
                 NSRegularExpression *re = [NSRegularExpression
                     regularExpressionWithPattern:@"（([0-9.]+)%）" options:0 error:nil];
