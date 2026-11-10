@@ -6,6 +6,7 @@
 //  TZClassIsSafe 用于限制可内省类集合。
 //
 
+#import <pthread.h>
 #import "TZClassDump.h"
 #import <dlfcn.h>
 #import <CoreFoundation/CoreFoundation.h>
@@ -21,6 +22,50 @@ static NSString *DKCString(const char *value) {
     for (size_t i = 0; i < MIN(length, (size_t)64); i++) [hex appendFormat:@"%02x", (unsigned char)value[i]];
     [hex appendString:@">"];
     return hex;
+}
+
+
+#pragma mark - Class 指针安全校验
+
+static CFSetRef TZValidClassSet = NULL;
+static pthread_mutex_t TZValidClassLock = PTHREAD_MUTEX_INITIALIZER;
+
+static void TZRefreshValidClassSet(void) {
+    int n = objc_getClassList(NULL, 0);
+    if (n <= 0) return;
+    Class *classes = (Class *)malloc(sizeof(Class) * (size_t)n);
+    if (!classes) return;
+    n = objc_getClassList(classes, n);
+    if (n <= 0) { free(classes); return; }
+    const void **ptrs = (const void **)malloc(sizeof(void *) * (size_t)n);
+    if (!ptrs) { free(classes); return; }
+    for (int i = 0; i < n; i++) {
+        ptrs[i] = (__bridge const void *)classes[i];
+    }
+    CFSetRef newSet = CFSetCreate(kCFAllocatorDefault, ptrs, (CFIndex)n, NULL);
+    free(ptrs);
+    free(classes);
+    pthread_mutex_lock(&TZValidClassLock);
+    if (TZValidClassSet) CFRelease(TZValidClassSet);
+    TZValidClassSet = newSet;
+    pthread_mutex_unlock(&TZValidClassLock);
+}
+
+static BOOL TZIsValidClass(Class cls) {
+    if (!cls) return NO;
+    pthread_mutex_lock(&TZValidClassLock);
+    BOOL ok = (TZValidClassSet != NULL) &&
+              CFSetContainsValue(TZValidClassSet, (__bridge const void *)cls);
+    pthread_mutex_unlock(&TZValidClassLock);
+    return ok;
+}
+
+// 只对 runtime 活着的 Class 调用；用 class_getName 避开 Swift demangle 崩溃路径
+static NSString *TZSafeClassName(Class cls) {
+    if (!TZIsValidClass(cls)) return nil;
+    const char *name = class_getName(cls);
+    if (!name || name[0] == '\0') return nil;
+    return [NSString stringWithUTF8String:name];
 }
 
 #pragma mark - 安全内省检查
@@ -386,7 +431,7 @@ static NSString *DKMethodLine(Method m, BOOL isClassMethod) {
 static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
     if (!TZClassIsSafe(cls)) return nil;
     @try {
-        NSString *className = NSStringFromClass(cls);
+        NSString *className = TZSafeClassName(cls);
         if (className.length == 0) return nil;
         // 仅对纯 Swift mangled name (如 _TtC...) 跳过，允许带点(.)的 ObjC 兼容类强行输出
         if ([className hasPrefix:@"_Tt"] || [className hasPrefix:@"Swift."] || [className hasPrefix:@"SwiftUI."]) {
@@ -396,7 +441,7 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
         }
 
         Class superCls = class_getSuperclass(cls);
-        NSString *superName = superCls ? NSStringFromClass(superCls) : @"NSObject";
+        NSString *superName = TZSafeClassName(superCls) ?: @"NSObject";
 
         NSMutableString *h = [NSMutableString string];
         [h appendString:@"//\n"];
@@ -588,6 +633,7 @@ static NSString *DKHeaderForClass(Class cls, NSString *imageName) {
 // 遍历所有已加载 image 的 __objc_classlist，返回 class_t* 数组
 // 运行时指针已重定位，直接解引用，不需要自己算 base address
 NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
+    TZRefreshValidClassSet();
     // 核心优化：用 Dictionary 按类名去重，防止几万个类重复解析
     NSMutableDictionary<NSString *, NSValue *> *dict = [NSMutableDictionary dictionary];
 
@@ -599,7 +645,7 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
         for (int i = 0; i < numClasses; i++) {
             Class cls = classes[i];
             if (cls) {
-                NSString *name = NSStringFromClass(cls);
+                NSString *name = TZSafeClassName(cls);
                 if (name.length > 0) {
                     dict[name] = [NSValue valueWithPointer:(__bridge const void *)cls];
                 }
@@ -634,7 +680,7 @@ NSArray<NSValue *> *TZClassDumpAllClassesFromMachO(void) {
             if (cls) {
                 Class c = (__bridge Class)(void *)cls;
                 if (c) {
-                    NSString *name = NSStringFromClass(c);
+                    NSString *name = TZSafeClassName(c);
                     if (name.length > 0) {
                         dict[name] = [NSValue valueWithPointer:(void *)cls];
                     }
@@ -678,6 +724,7 @@ NSDictionary<NSString *, NSNumber *> *TZClassDumpCountClassesPerImage(void) {
 }
 
 NSString *TZClassDumpHeaderForClass(Class cls) {
+    if (!TZIsValidClass(cls)) return nil;
     if (!TZClassIsSafe(cls)) return nil;
     NSString *imageName = @"Unknown";
     const char *img = class_getImageName(cls);
@@ -686,6 +733,7 @@ NSString *TZClassDumpHeaderForClass(Class cls) {
 }
 // DK_WARNING_CLEANUP
 NSDictionary<NSString *, NSArray<NSValue *> *> *TZClassDumpGroupedClasses(void) {
+    TZRefreshValidClassSet();
     NSMutableDictionary<NSString *, NSMutableArray<NSValue *> *> *grouped = [NSMutableDictionary dictionary];
     
     int numClasses = objc_getClassList(NULL, 0);
