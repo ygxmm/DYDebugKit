@@ -611,16 +611,7 @@ static UIWindowScene *DYDebugForegroundWindowScene(void) {
 static void DYShowOverlayInScene(UIWindowScene *scene) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (scene == nil || scene.activationState != UISceneActivationStateForegroundActive) return;
-        if (gWindow != nil && gWindow.windowScene == scene && !gWindow.hidden) return;
-
-        DYDebugOverlayController *oldController =
-            (DYDebugOverlayController *)gWindow.rootViewController;
-        if (oldController.exporting || oldController.presentedViewController != nil) return;
-        if (gWindow != nil) {
-            gWindow.hidden = YES;
-            gWindow.rootViewController = nil;
-            gWindow = nil;
-        }
+        if (gWindow != nil && gWindow.windowScene != nil && !gWindow.hidden) return;
 
         gWindow = [[DYDebugOverlayWindow alloc] initWithWindowScene:scene];
         gWindow.backgroundColor = UIColor.clearColor;
