@@ -58,6 +58,9 @@ NSArray<UIWindow *> *TZDebugActiveWindows(void);
 /// 前台 key 窗口（排除调试自身窗口）。
 UIWindow *TZDebugTargetWindow(void);
 
+/// 只在指定前台 scene 中选择普通应用窗口（优先 key）；绝不跨 scene 回退。
+UIWindow * _Nullable TZDebugTargetWindowForScene(UIWindowScene * _Nullable scene);
+
 /// 某窗口当前最顶层的 VC（穿透 present/nav/tab）。
 UIViewController *TZDebugTopPresenter(UIWindow *window);
 
@@ -66,6 +69,9 @@ TZDebugExportContext *TZDebugCaptureContext(UIWindow *targetWindow, CGPoint poin
 
 /// 只采元信息与截图，不遍历 view tree；音频专项导出用。
 TZDebugExportContext *TZDebugCaptureMetadataContext(UIWindow *targetWindow);
+
+/// 仅采元信息，不生成截图；用于不消费截图的全类导出。
+TZDebugExportContext *TZDebugCaptureMetadataOnlyContext(UIWindow *targetWindow);
 
 #ifdef __cplusplus
 }

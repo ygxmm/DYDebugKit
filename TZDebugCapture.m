@@ -144,6 +144,44 @@ UIWindow *TZDebugTargetWindow(void) {
     return windows.firstObject;
 }
 
+UIWindow * _Nullable TZDebugTargetWindowForScene(UIWindowScene * _Nullable scene) {
+    if (scene == nil) return nil;
+    if (@available(iOS 13.0, *)) {
+        if (scene.activationState != UISceneActivationStateForegroundActive) return nil;
+
+        UIWindow *fallback = nil;
+        for (UIWindow *window in scene.windows) {
+            if (!window || TZIsDebugWindow(window)) continue;
+            if (window.hidden || window.alpha <= 0.01) continue;
+            // Only capture the app's ordinary content window, not alert or overlay windows.
+            if (fabs(window.windowLevel - UIWindowLevelNormal) > 0.01) continue;
+            if (window.isKeyWindow) return window;
+            if (fallback == nil) fallback = window;
+        }
+        return fallback;
+    }
+    return nil;
+}
+
+// Keep a page capture within the scene that initiated it. Other active scenes
+// may contain an unrelated document or user session in the same process.
+static NSArray<UIWindow *> *DKWindowsForTargetWindow(UIWindow *targetWindow) {
+    NSArray<UIWindow *> *active = TZDebugActiveWindows();
+    if (@available(iOS 13.0, *)) {
+        UIWindowScene *targetScene = targetWindow.windowScene;
+        if (targetScene) {
+            NSMutableArray<UIWindow *> *sameScene = [NSMutableArray array];
+            for (UIWindow *window in active) {
+                if (window.windowScene == targetScene) [sameScene addObject:window];
+            }
+            if (sameScene.count == 0 && targetWindow) [sameScene addObject:targetWindow];
+            return sameScene;
+        }
+        if (targetWindow) return @[targetWindow];
+    }
+    return active;
+}
+
 static UIViewController *DKViewControllerForView(UIView *view) {
     UIResponder *responder = view;
     for (NSUInteger i = 0; responder && i < 80; i++) {
@@ -201,7 +239,40 @@ static NSDictionary *DKLayerInfo(CALayer *layer) {
     };
 }
 
+static BOOL DKViewIsTextInputOrDescendant(UIView *view) {
+    for (UIView *current = view; current != nil; current = current.superview) {
+        if ([current conformsToProtocol:@protocol(UITextInput)]) return YES;
+    }
+    return NO;
+}
+
+static BOOL DKViewContainsTextInput(UIView *root) {
+    if (!root) return NO;
+    NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:root];
+    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+    for (NSUInteger index = 0; index < pending.count; index++) {
+        UIView *view = pending[index];
+        NSValue *identity = [NSValue valueWithPointer:(__bridge const void *)view];
+        if ([seen containsObject:identity]) continue;
+        [seen addObject:identity];
+        if ([view conformsToProtocol:@protocol(UITextInput)]) return YES;
+        [pending addObjectsFromArray:view.subviews];
+    }
+    return NO;
+}
+
+static BOOL DKShouldRedactViewText(UIView *view) {
+    if (DKViewIsTextInputOrDescendant(view)) return YES;
+    BOOL maySerializeText = [view respondsToSelector:@selector(text)] ||
+                            [view respondsToSelector:@selector(attributedText)] ||
+                            [view isKindOfClass:[UIButton class]] ||
+                            view.accessibilityLabel.length > 0 ||
+                            view.accessibilityIdentifier.length > 0;
+    return maySerializeText && DKViewContainsTextInput(view);
+}
+
 static NSMutableDictionary *DKBaseViewInfo(UIView *view, NSUInteger depth) {
+    BOOL redactText = DKShouldRedactViewText(view);
     UIViewController *nearestVC = DKViewControllerForView(view);
     NSMutableDictionary *info = [@{
         @"class": TZClassName(view),
@@ -223,8 +294,8 @@ static NSMutableDictionary *DKBaseViewInfo(UIView *view, NSUInteger depth) {
         @"transform": DKAffineDict(view.transform),
         @"backgroundColor": DKStringFromColor(view.backgroundColor),
         @"tintColor": DKStringFromColor(view.tintColor),
-        @"accessibilityIdentifier": view.accessibilityIdentifier ?: @"",
-        @"accessibilityLabel": view.accessibilityLabel ?: @"",
+        @"accessibilityIdentifier": redactText ? @"" : (view.accessibilityIdentifier ?: @""),
+        @"accessibilityLabel": redactText ? @"" : (view.accessibilityLabel ?: @""),
         @"nearestViewController": nearestVC ? @{
             @"class": TZClassName(nearestVC),
             @"address": DKStringFromPointer((__bridge const void *)nearestVC)
@@ -233,7 +304,7 @@ static NSMutableDictionary *DKBaseViewInfo(UIView *view, NSUInteger depth) {
         @"subviewCount": @(view.subviews.count)
     } mutableCopy];
 
-    if ([view isKindOfClass:[UILabel class]]) {
+    if (!redactText && [view isKindOfClass:[UILabel class]]) {
         UILabel *label = (UILabel *)view;
         info[@"label"] = @{
             @"text": label.text ?: @"",
@@ -244,7 +315,7 @@ static NSMutableDictionary *DKBaseViewInfo(UIView *view, NSUInteger depth) {
             @"textAlignment": @(label.textAlignment)
         };
     }
-    if ([view isKindOfClass:[UIButton class]]) {
+    if (!redactText && [view isKindOfClass:[UIButton class]]) {
         UIButton *button = (UIButton *)view;
         info[@"button"] = @{
             @"currentTitle": [button titleForState:UIControlStateNormal] ?: (button.currentTitle ?: @""),
@@ -311,16 +382,17 @@ static NSDictionary *DKViewTreeJSON(UIView *view, NSUInteger depth, NSMutableArr
 }
 
 static void DKAppendViewTreeText(UIView *view, NSUInteger depth, NSMutableString *out) {
+    BOOL redactText = DKShouldRedactViewText(view);
     NSMutableString *indent = [NSMutableString string];
     for (NSUInteger i = 0; i < depth; i++) [indent appendString:@"  "];
     UIViewController *vc = DKViewControllerForView(view);
     
     NSString *extra = @"";
-    if ([view isKindOfClass:[UILabel class]] && ((UILabel *)view).text.length > 0) {
+    if (!redactText && [view isKindOfClass:[UILabel class]] && ((UILabel *)view).text.length > 0) {
         extra = [NSString stringWithFormat:@"text=\"%@\" ", ((UILabel *)view).text];
-    } else if ([view isKindOfClass:[UIButton class]] && ((UIButton *)view).currentTitle.length > 0) {
+    } else if (!redactText && [view isKindOfClass:[UIButton class]] && ((UIButton *)view).currentTitle.length > 0) {
         extra = [NSString stringWithFormat:@"text=\"%@\" ", ((UIButton *)view).currentTitle];
-    } else if (view.accessibilityLabel.length > 0) {
+    } else if (!redactText && view.accessibilityLabel.length > 0) {
         extra = [NSString stringWithFormat:@"label=\"%@\" ", view.accessibilityLabel];
     }
     
@@ -415,6 +487,40 @@ static void DKAppendVCText(UIViewController *vc, NSUInteger depth, NSMutableStri
     }
 }
 
+// Collect editable text-control bounds in target-window coordinates so the
+// screenshot does not disclose input contents (including revealed passwords).
+// Use an explicit stack rather than recursion: unusual/deep UIKit trees must not
+// overflow the capture thread's stack.
+static void DKCollectTextInputRects(UIView *root, UIWindow *targetWindow, NSMutableArray<NSValue *> *rects) {
+    if (!root || !targetWindow || !rects) return;
+    NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:root];
+    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+    for (NSUInteger index = 0; index < pending.count; index++) {
+        UIView *view = pending[index];
+        NSValue *identity = [NSValue valueWithPointer:(__bridge const void *)view];
+        if ([seen containsObject:identity]) continue;
+        [seen addObject:identity];
+        if (view.hidden || view.alpha <= 0.01) continue;
+
+        UIWindow *sourceWindow = view.window;
+        if ([view conformsToProtocol:@protocol(UITextInput)] && sourceWindow &&
+            sourceWindow.screen == targetWindow.screen) {
+            // Convert through screen coordinates because these windows may have
+            // separate view hierarchies even though they share one UIScreen.
+            CGRect inSourceWindow = [view convertRect:view.bounds toView:sourceWindow];
+            CGRect onScreen = [sourceWindow convertRect:inSourceWindow toWindow:nil];
+            CGRect inTargetWindow = [targetWindow convertRect:onScreen fromWindow:nil];
+            CGRect clipped = CGRectIntersection(inTargetWindow, targetWindow.bounds);
+            if (isfinite(clipped.origin.x) && isfinite(clipped.origin.y) &&
+                isfinite(clipped.size.width) && isfinite(clipped.size.height) &&
+                !CGRectIsNull(clipped) && !CGRectIsEmpty(clipped)) {
+                [rects addObject:[NSValue valueWithCGRect:clipped]];
+            }
+        }
+        [pending addObjectsFromArray:view.subviews];
+    }
+}
+
 // 按 windowLevel 从低到高逐个画，截图才等于用户真正看到的画面。
 // 只画 key 窗口会漏掉浮层：某些 App 的内嵌画中画窗口 在 windowLevel 2000，
 // 它铺满全屏时导出截图却一切正常，排查会整整绕一轮。
@@ -422,16 +528,54 @@ static NSData *DKScreenshotPNG(UIWindow *targetWindow) {
     if (!targetWindow) return NSData.data;
 
     NSArray<UIWindow *> *windows =
-        [TZDebugActiveWindows() sortedArrayUsingComparator:^NSComparisonResult(UIWindow *a, UIWindow *b) {
+        [DKWindowsForTargetWindow(targetWindow) sortedArrayUsingComparator:^NSComparisonResult(UIWindow *a, UIWindow *b) {
             if (a.windowLevel == b.windowLevel) return NSOrderedSame;
             return a.windowLevel < b.windowLevel ? NSOrderedAscending : NSOrderedDescending;
         }];
     if (windows.count == 0) windows = @[ targetWindow ];
 
-    UIGraphicsBeginImageContextWithOptions(targetWindow.bounds.size, NO, 0);
+    CGSize canvasSize = targetWindow.bounds.size;
+    CGFloat scale = targetWindow.screen.scale;
+    if (scale <= 0) scale = 0;
+    CGRect canvasBounds = (CGRect){ CGPointZero, canvasSize };
+    UIGraphicsBeginImageContextWithOptions(canvasSize, NO, scale);
     for (UIWindow *window in windows) {
+        // Snapshot each same-scene window in its own local coordinates, then
+        // place it at the converted target-window rect. This preserves floating
+        // windows whose frame origin differs from the key window's origin.
+        UIGraphicsBeginImageContextWithOptions(window.bounds.size, NO, scale);
         BOOL drew = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:NO];
         if (!drew) [window.layer renderInContext:UIGraphicsGetCurrentContext()];
+        UIImage *snapshot = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+
+        CGRect inTargetWindow = [window convertRect:window.bounds toWindow:targetWindow];
+        CGRect canvasRect = CGRectOffset(inTargetWindow,
+                                         -CGRectGetMinX(targetWindow.bounds),
+                                         -CGRectGetMinY(targetWindow.bounds));
+        if (snapshot && isfinite(canvasRect.origin.x) && isfinite(canvasRect.origin.y) &&
+            isfinite(canvasRect.size.width) && isfinite(canvasRect.size.height) &&
+            !CGRectIsNull(canvasRect) && !CGRectIsEmpty(canvasRect)) {
+            [snapshot drawInRect:canvasRect];
+        }
+
+        // Redact immediately after this window, not after compositing all
+        // windows: higher-level same-scene PiP/floating windows must remain visible.
+        NSMutableArray<NSValue *> *redactions = [NSMutableArray array];
+        DKCollectTextInputRects(window, targetWindow, redactions);
+        if (redactions.count > 0) {
+            CGContextRef context = UIGraphicsGetCurrentContext();
+            CGContextSaveGState(context);
+            CGContextSetFillColorWithColor(context, UIColor.blackColor.CGColor);
+            for (NSValue *value in redactions) {
+                CGRect rect = CGRectOffset(value.CGRectValue,
+                                           -CGRectGetMinX(targetWindow.bounds),
+                                           -CGRectGetMinY(targetWindow.bounds));
+                rect = CGRectIntersection(rect, canvasBounds);
+                if (!CGRectIsNull(rect) && !CGRectIsEmpty(rect)) UIRectFill(rect);
+            }
+            CGContextRestoreGState(context);
+        }
     }
     UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
@@ -442,6 +586,32 @@ static NSData *DKScreenshotPNG(UIWindow *targetWindow) {
 
 static NSMutableDictionary<NSString *, DKProbeBlock> *gProbeBlocks = nil;
 static NSMutableArray<NSString *> *gProbeOrder = nil;
+
+static NSString *TZCaptureTabBarProbe(UIWindow *window);
+static NSString *TZCaptureAnomaliesProbe(UIWindow *window);
+static NSString *TZCaptureHitTestProbe(UIWindow *window);
+
+// A probe is arbitrary client code and can inspect any view. When a page has
+// editable controls, run only the built-ins whose output is explicitly audited
+// for value redaction; never expose the live hierarchy to custom probe blocks.
+// Arbitrary probe blocks can inspect UIApplication's other windows too. Keep
+// them disabled whenever any connected app scene has an editable text input.
+static BOOL DKApplicationContainsTextInput(UIWindow *targetWindow) {
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                [windows addObjectsFromArray:((UIWindowScene *)scene).windows];
+            }
+        }
+    }
+    if (windows.count == 0) [windows addObjectsFromArray:TZDebugActiveWindows()];
+    if (targetWindow && ![windows containsObject:targetWindow]) [windows addObject:targetWindow];
+    for (UIWindow *window in windows) {
+        if (DKViewContainsTextInput(window)) return YES;
+    }
+    return NO;
+}
 
 void TZRegisterProbe(NSString *name, DKProbeBlock block) {
     if (!name.length || !block) return;
@@ -456,6 +626,13 @@ void TZRegisterProbe(NSString *name, DKProbeBlock block) {
 
 static NSDictionary<NSString *, NSString *> *TZRunAllProbes(UIWindow *window) {
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    if (DKApplicationContainsTextInput(window)) {
+        // Built-ins only. Custom blocks are opaque and may serialize input values.
+        result[@"tabbar"] = TZCaptureTabBarProbe(window) ?: @"";
+        result[@"anomalies"] = TZCaptureAnomaliesProbe(window) ?: @"";
+        result[@"touch"] = TZCaptureHitTestProbe(window) ?: @"";
+        return result;
+    }
     for (NSString *name in gProbeOrder) {
         @try {
             NSString *text = gProbeBlocks[name](window);
@@ -484,13 +661,14 @@ static void DKAppendViewNode(UIView *v, NSMutableString *out, NSUInteger depth) 
     [out appendFormat:@"%@%@ frame=%@ hidden=%d alpha=%.2f user=%d\n",
      indent, NSStringFromClass([v class]), NSStringFromCGRect(v.frame),
      (int)v.hidden, v.alpha, (int)v.userInteractionEnabled];
-    if ([v isKindOfClass:[UILabel class]]) {
+    BOOL redactText = DKViewIsTextInputOrDescendant(v) || DKViewContainsTextInput(v);
+    if (!redactText && [v isKindOfClass:[UILabel class]]) {
         UILabel *lbl = (UILabel *)v;
         if (lbl.text.length > 0) {
             [out appendFormat:@"%@  text=%@\n", indent, lbl.text];
         }
     }
-    if ([v isKindOfClass:[UIButton class]]) {
+    if (!redactText && [v isKindOfClass:[UIButton class]]) {
         UIButton *b = (UIButton *)v;
         NSString *label = v.accessibilityLabel ?: @"";
         NSString *ident = v.accessibilityIdentifier ?: @"";
@@ -504,16 +682,20 @@ static void DKAppendViewNode(UIView *v, NSMutableString *out, NSUInteger depth) 
 
 static NSString *DKTabBarLabel(UIView *v) {
     NSString *cls = NSStringFromClass([v class]);
+    // A tab item may itself wrap an editable control; do not expose any label
+    // synthesized by that composite container.
+    if (DKViewIsTextInputOrDescendant(v) || DKViewContainsTextInput(v)) return cls;
     NSString *label = v.accessibilityLabel ?: @"";
     if (label.length == 0 && [cls containsString:@"Plus"]) label = @"+";
     
     // 深入子视图找 UILabel 或 UIButton 的 title
     if (label.length == 0) {
         for (UIView *sub in v.subviews) {
-            if ([sub isKindOfClass:[UILabel class]] && ((UILabel *)sub).text.length > 0) {
+            BOOL redactSubtreeText = DKViewIsTextInputOrDescendant(sub) || DKViewContainsTextInput(sub);
+            if (!redactSubtreeText && [sub isKindOfClass:[UILabel class]] && ((UILabel *)sub).text.length > 0) {
                 label = ((UILabel *)sub).text; break;
             }
-            if ([sub isKindOfClass:[UIButton class]] && ((UIButton *)sub).currentTitle.length > 0) {
+            if (!redactSubtreeText && [sub isKindOfClass:[UIButton class]] && ((UIButton *)sub).currentTitle.length > 0) {
                 label = ((UIButton *)sub).currentTitle; break;
             }
         }
@@ -777,13 +959,21 @@ static NSDictionary *TZDebugMetadata(UIWindow *targetWindow, CGPoint point) {
 
 // 音频专项导出只用得上元信息和截图。整棵 view tree 有几 MB，
 // 采到再丢等于让主线程白跑一趟，所以单开这条轻量路径。
-TZDebugExportContext *TZDebugCaptureMetadataContext(UIWindow *targetWindow) {
+static TZDebugExportContext *TZDebugBuildMetadataContext(UIWindow *targetWindow, BOOL includeScreenshot) {
     TZDebugExportContext *context = [TZDebugExportContext new];
     context.metadata = TZDebugMetadata(targetWindow, CGPointZero);
-    context.screenshotPNG = DKScreenshotPNG(targetWindow);
+    if (includeScreenshot) context.screenshotPNG = DKScreenshotPNG(targetWindow);
     context.sourceView = targetWindow;
     context.presenter = TZDebugTopPresenter(targetWindow);
     return context;
+}
+
+TZDebugExportContext *TZDebugCaptureMetadataContext(UIWindow *targetWindow) {
+    return TZDebugBuildMetadataContext(targetWindow, YES);
+}
+
+TZDebugExportContext *TZDebugCaptureMetadataOnlyContext(UIWindow *targetWindow) {
+    return TZDebugBuildMetadataContext(targetWindow, NO);
 }
 
 
@@ -799,7 +989,7 @@ static NSString *TZCaptureRespondersText(UIWindow *window); // DK_FEATURE_RESPON
 
 TZDebugExportContext *TZDebugCaptureContext(UIWindow *targetWindow, CGPoint point, UIView *selectedView) {
     TZDebugExportContext *context = [TZDebugExportContext new];
-    NSArray<UIWindow *> *windows = TZDebugActiveWindows();
+    NSArray<UIWindow *> *windows = DKWindowsForTargetWindow(targetWindow);
     NSMutableArray *windowsJSON = [NSMutableArray array];
     NSMutableArray *treeJSON = [NSMutableArray array];
     NSMutableArray *layersJSON = [NSMutableArray array];
@@ -927,10 +1117,11 @@ static void DKCollectInteractivesFromView(UIView *v, NSMutableString *out, NSUIn
         NSString *cls = NSStringFromClass([v class]);
         NSString *frame = NSStringFromCGRect(v.frame);
         NSString *enabled = isControl ? (((UIControl *)v).enabled ? @"YES" : @"NO") : @"-";
-        NSString *ident = v.accessibilityIdentifier ?: @"";
-        NSString *label = v.accessibilityLabel ?: @"";
+        BOOL redactText = DKShouldRedactViewText(v);
+        NSString *ident = redactText ? @"" : (v.accessibilityIdentifier ?: @"");
+        NSString *label = redactText ? @"" : (v.accessibilityLabel ?: @"");
         NSString *title = @"";
-        if ([v isKindOfClass:[UIButton class]]) title = ((UIButton *)v).currentTitle ?: @"";
+        if (!redactText && [v isKindOfClass:[UIButton class]]) title = ((UIButton *)v).currentTitle ?: @"";
         // DK_FEATURE_TARGETS: 解析 UIControl target-action
         NSString *targets = @"-";
         if (isControl) {
@@ -982,27 +1173,33 @@ static NSString *TZCaptureInteractivesText(UIWindow *window) {
 
 static void DKCollectTextsFromView(UIView *v, NSMutableString *out, NSUInteger depth) {
     if (!v) return;
+
+    // Passwords, search queries, chat drafts, and other editable text are user data.
+    // Suppress text from the entire control subtree, including private child views.
+    BOOL redactText = DKShouldRedactViewText(v);
     NSString *text = nil;
-    // DK_FEATURE_UNIVERSAL_TEXT: 通用 text 抓取，覆盖 UILabel / YYLabel /
-    // DUXBaseLabel / AWEUserNameLabel 等所有自定义 Label 子类
-    if ([v respondsToSelector:@selector(text)]) {
-        @try {
-            id t = [v performSelector:@selector(text)];
-            if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) text = (NSString *)t;
-        } @catch (__unused NSException *e) {}
-    }
-    // attributedText 兜底（部分富文本 view 只有 attributedText）
-    if (text.length == 0 && [v respondsToSelector:@selector(attributedText)]) {
-        @try {
-            id at = [v performSelector:@selector(attributedText)];
-            if ([at isKindOfClass:[NSAttributedString class]] && [(NSAttributedString *)at length] > 0) {
-                text = [(NSAttributedString *)at string];
-            }
-        } @catch (__unused NSException *e) {}
-    }
-    // UIButton 的 title 单独处理（UIButton 自身没有 text 属性）
-    if (text.length == 0 && [v isKindOfClass:[UIButton class]]) {
-        text = ((UIButton *)v).currentTitle;
+    if (!redactText) {
+        // DK_FEATURE_UNIVERSAL_TEXT: 通用 text 抓取，覆盖 UILabel / YYLabel /
+        // DUXBaseLabel / AWEUserNameLabel 等所有自定义 Label 子类
+        if ([v respondsToSelector:@selector(text)]) {
+            @try {
+                id t = [v performSelector:@selector(text)];
+                if ([t isKindOfClass:[NSString class]] && [(NSString *)t length] > 0) text = (NSString *)t;
+            } @catch (__unused NSException *e) {}
+        }
+        // attributedText 兜底（部分富文本 view 只有 attributedText）
+        if (text.length == 0 && [v respondsToSelector:@selector(attributedText)]) {
+            @try {
+                id at = [v performSelector:@selector(attributedText)];
+                if ([at isKindOfClass:[NSAttributedString class]] && [(NSAttributedString *)at length] > 0) {
+                    text = [(NSAttributedString *)at string];
+                }
+            } @catch (__unused NSException *e) {}
+        }
+        // UIButton 的 title 单独处理（UIButton 自身没有 text 属性）
+        if (text.length == 0 && [v isKindOfClass:[UIButton class]]) {
+            text = ((UIButton *)v).currentTitle;
+        }
     }
     if (text.length > 0) {
         NSMutableString *indent = [NSMutableString string];
@@ -1017,7 +1214,7 @@ static void DKCollectTextsFromView(UIView *v, NSMutableString *out, NSUInteger d
 
 static NSString *TZCaptureTextsText(UIWindow *window) {
     NSMutableString *out = [NSMutableString string];
-    [out appendString:@"# Texts (UILabel / UITextField / UITextView / UIButton title)\n"];
+    [out appendString:@"# Texts (UILabel / non-editable text / UIButton title; UITextInput values omitted for privacy)\n"];
     if (!window) { [out appendString:@"(no window)\n"]; return out; }
     DKCollectTextsFromView(window, out, 0);
     return out;
@@ -1036,8 +1233,9 @@ static void DKCollectImagesFromView(UIView *v, NSMutableString *out, NSUInteger 
         NSString *size = img ? NSStringFromCGSize(img.size) : @"null";
         NSUInteger frames = img.images.count;
         CGFloat scale = img ? img.scale : 0;
-        NSString *ident = iv.accessibilityIdentifier ?: @"";
-        NSString *label = iv.accessibilityLabel ?: @"";
+        BOOL redactText = DKShouldRedactViewText(iv);
+        NSString *ident = redactText ? @"" : (iv.accessibilityIdentifier ?: @"");
+        NSString *label = redactText ? @"" : (iv.accessibilityLabel ?: @"");
         [out appendFormat:@"%@%@ frame=%@ hidden=%d image=%@ frames=%lu scale=%.1f id=%@ label=%@\n",
          indent, NSStringFromClass([v class]), NSStringFromCGRect(v.frame),
          (int)v.hidden, size, (unsigned long)frames, scale, ident, label];

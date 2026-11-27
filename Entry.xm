@@ -85,6 +85,8 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 
     [self.button setTitle:@"🐞" forState:UIControlStateNormal];
     self.button.titleLabel.font = [UIFont systemFontOfSize:24];
+    self.button.accessibilityLabel = @"调试菜单";
+    self.button.accessibilityHint = @"轻点打开导出操作；拖动可移动此浮窗";
     [self.button addTarget:self
                     action:@selector(debugTapped)
           forControlEvents:UIControlEventTouchUpInside];
@@ -106,28 +108,35 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
     }
 }
 
+- (CGPoint)clampedButtonCenter:(CGPoint)center {
+    CGFloat halfW = CGRectGetWidth(self.button.bounds) * 0.5;
+    CGFloat halfH = CGRectGetHeight(self.button.bounds) * 0.5;
+    CGFloat margin = 8.0;
+    UIEdgeInsets safe = self.view.safeAreaInsets;
+    CGFloat minX = safe.left + halfW + margin;
+    CGFloat maxX = CGRectGetWidth(self.view.bounds) - safe.right - halfW - margin;
+    CGFloat minY = safe.top + halfH + margin;
+    CGFloat maxY = CGRectGetHeight(self.view.bounds) - safe.bottom - halfH - margin;
+    if (maxX < minX) minX = maxX = (safe.left + CGRectGetWidth(self.view.bounds) - safe.right) * 0.5;
+    if (maxY < minY) minY = maxY = (safe.top + CGRectGetHeight(self.view.bounds) - safe.bottom) * 0.5;
+    center.x = MAX(minX, MIN(maxX, center.x));
+    center.y = MAX(minY, MIN(maxY, center.y));
+    return center;
+}
+
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-
-    CGFloat halfW = self.button.bounds.size.width * 0.5;
-    CGFloat halfH = self.button.bounds.size.height * 0.5;
-    CGFloat margin = 8.0;
-    CGFloat safeTop = self.view.safeAreaInsets.top;
-    CGFloat safeBottom = self.view.safeAreaInsets.bottom;
 
     CGPoint c;
     if (self.hasCustomPosition) {
         c = self.buttonCenter;
     } else {
         c = CGPointMake(
-            self.view.bounds.size.width - 38.0,
+            CGRectGetWidth(self.view.bounds) - self.view.safeAreaInsets.right - 38.0,
             self.view.safeAreaInsets.top + 38.0
         );
     }
-    c.x = MAX(halfW + margin,
-              MIN(self.view.bounds.size.width - halfW - margin, c.x));
-    c.y = MAX(safeTop + halfH + margin,
-              MIN(self.view.bounds.size.height - safeBottom - halfH - margin, c.y));
+    c = [self clampedButtonCenter:c];
     self.buttonCenter = c;
     self.button.center = c;
 }
@@ -147,19 +156,16 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
         self.hasCustomPosition = YES;
     } else if (st == UIGestureRecognizerStateEnded ||
                st == UIGestureRecognizerStateCancelled) {
-        CGFloat halfW = v.bounds.size.width * 0.5;
-        CGFloat halfH = v.bounds.size.height * 0.5;
+        CGFloat halfW = CGRectGetWidth(v.bounds) * 0.5;
         CGFloat margin = 8.0;
-        CGFloat safeTop = self.view.safeAreaInsets.top;
-        CGFloat safeBottom = self.view.safeAreaInsets.bottom;
         CGPoint c = v.center;
+        UIEdgeInsets safe = self.view.safeAreaInsets;
         if (c.x < self.view.bounds.size.width * 0.5) {
-            c.x = halfW + margin;
+            c.x = safe.left + halfW + margin;
         } else {
-            c.x = self.view.bounds.size.width - halfW - margin;
+            c.x = self.view.bounds.size.width - safe.right - halfW - margin;
         }
-        c.y = MAX(safeTop + halfH + margin,
-                  MIN(self.view.bounds.size.height - safeBottom - halfH - margin, c.y));
+        c = [self clampedButtonCenter:c];
         [UIView animateWithDuration:0.2 animations:^{ v.center = c; }];
         self.buttonCenter = c;
         [[NSUserDefaults standardUserDefaults]
@@ -172,91 +178,173 @@ static id<UIGestureRecognizerDelegate> gGestureDelegate = nil;
 #pragma mark - 弹出功能菜单
 
 - (void)debugTapped {
-    UIWindow *win = self.view.window;
-    if (win == nil) return;
-    
-    UIView *overlay = [[UIView alloc] initWithFrame:win.bounds];
-    overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
+    if (self.view.window == nil || [self.view viewWithTag:88881] != nil) return;
+
+    UIView *overlay = [UIView new];
+    overlay.translatesAutoresizingMaskIntoConstraints = NO;
+    overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45];
     overlay.alpha = 0;
     overlay.tag = 88881;
-    [win addSubview:overlay];
+    [self.view addSubview:overlay];
+    [NSLayoutConstraint activateConstraints:@[
+        [overlay.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [overlay.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [overlay.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [overlay.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+    ]];
     [overlay addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(hideMenu)]];
-    
-    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(16, win.bounds.size.height, win.bounds.size.width - 32, 190)];
+
+    UIView *card = [UIView new];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    card.backgroundColor = UIColor.clearColor;
     card.layer.cornerRadius = 20;
     card.layer.masksToBounds = YES;
     card.tag = 88882;
-    
-    UIVisualEffectView *blur = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialDark]];
-    blur.frame = card.bounds;
-    blur.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    card.accessibilityViewIsModal = YES;
+    card.accessibilityElementsHidden = YES;
+
+    UIVisualEffectView *blur = [[UIVisualEffectView alloc] initWithEffect:
+        [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterialDark]];
+    blur.translatesAutoresizingMaskIntoConstraints = NO;
     [card addSubview:blur];
-    
-    UIButton *b1 = [UIButton buttonWithType:UIButtonTypeSystem];
-    b1.frame = CGRectMake(0, 10, card.bounds.size.width, 60);
-    [b1 setTitle:@"📄 导出本页头文件" forState:UIControlStateNormal];
-    [b1 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    b1.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
-    [b1 addTarget:self action:@selector(menuExportPage) forControlEvents:UIControlEventTouchUpInside];
-    [card addSubview:b1];
-    
-    UIButton *b2 = [UIButton buttonWithType:UIButtonTypeSystem];
-    b2.frame = CGRectMake(0, 70, card.bounds.size.width, 60);
-    [b2 setTitle:@"📦 导出全部 ClassDump" forState:UIControlStateNormal];
-    [b2 setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    b2.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
-    [b2 addTarget:self action:@selector(menuExportAll) forControlEvents:UIControlEventTouchUpInside];
-    [card addSubview:b2];
-    
-    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(20, 130, card.bounds.size.width - 40, 1)];
-    line.backgroundColor = [UIColor colorWithWhite:1 alpha:0.15];
-    [card addSubview:line];
-    
-    UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem];
-    cancel.frame = CGRectMake(0, 135, card.bounds.size.width, 50);
-    [cancel setTitle:@"取消" forState:UIControlStateNormal];
-    [cancel setTitleColor:[UIColor lightGrayColor] forState:UIControlStateNormal];
-    [cancel addTarget:self action:@selector(hideMenu) forControlEvents:UIControlEventTouchUpInside];
-    [card addSubview:cancel];
-    
-    [win addSubview:card];
-    
+    [NSLayoutConstraint activateConstraints:@[
+        [blur.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [blur.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [blur.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [blur.bottomAnchor constraintEqualToAnchor:card.bottomAnchor]
+    ]];
+
+    UIButton *(^makeMenuButton)(NSString *, NSString *, NSString *, SEL) =
+    ^UIButton *(NSString *title, NSString *label, NSString *hint, SEL action) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        [button setTitle:title forState:UIControlStateNormal];
+        [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+        button.titleLabel.adjustsFontForContentSizeCategory = YES;
+        button.titleLabel.numberOfLines = 0;
+        button.titleLabel.lineBreakMode = NSLineBreakByWordWrapping;
+        button.titleLabel.textAlignment = NSTextAlignmentCenter;
+        button.contentEdgeInsets = UIEdgeInsetsMake(12, 16, 12, 16);
+        button.accessibilityLabel = label;
+        button.accessibilityHint = hint;
+        [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+        return button;
+    };
+    UIButton *b1 = makeMenuButton(@"📄  导出本页头文件", @"导出本页头文件",
+                                  @"导出当前页面可见视图对应的头文件", @selector(menuExportPage));
+    UIButton *b2 = makeMenuButton(@"📦  导出全部 ClassDump", @"导出全部 ClassDump",
+                                  @"导出当前应用的全部类信息", @selector(menuExportAll));
+    UIButton *cancel = makeMenuButton(@"取消", @"取消并关闭调试菜单",
+                                      @"关闭菜单，不执行导出", @selector(hideMenu));
+    [cancel setTitleColor:UIColor.lightGrayColor forState:UIControlStateNormal];
+
+    UIView *line = [UIView new];
+    line.translatesAutoresizingMaskIntoConstraints = NO;
+    line.backgroundColor = [UIColor colorWithWhite:1 alpha:0.18];
+    [line.heightAnchor constraintEqualToConstant:1].active = YES;
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[b1, b2, line, cancel]];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.alignment = UIStackViewAlignmentFill;
+    stack.distribution = UIStackViewDistributionFill;
+    stack.spacing = 2;
+    stack.layoutMargins = UIEdgeInsetsMake(2, 4, 2, 4);
+    stack.layoutMarginsRelativeArrangement = YES;
+
+    UIScrollView *scroll = [UIScrollView new];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    scroll.alwaysBounceVertical = YES;
+    scroll.showsVerticalScrollIndicator = YES;
+    scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    [scroll addSubview:stack];
+    [card addSubview:scroll];
+    [self.view addSubview:card];
+
+    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+    NSLayoutConstraint *fitHeight = [card.heightAnchor constraintEqualToAnchor:stack.heightAnchor constant:20];
+    fitHeight.priority = UILayoutPriorityDefaultHigh;
+    [NSLayoutConstraint activateConstraints:@[
+        [card.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
+        [card.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
+        [card.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-12],
+        [card.topAnchor constraintGreaterThanOrEqualToAnchor:safe.topAnchor constant:12],
+        [card.heightAnchor constraintLessThanOrEqualToAnchor:safe.heightAnchor constant:-24],
+        fitHeight,
+        [scroll.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:10],
+        [scroll.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-10],
+        [scroll.topAnchor constraintEqualToAnchor:card.topAnchor constant:10],
+        [scroll.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-10],
+        [stack.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor],
+        [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor],
+        [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
+    ]];
+
+    card.transform = CGAffineTransformMakeTranslation(0, CGRectGetHeight(self.view.bounds));
     [UIView animateWithDuration:0.25 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
         overlay.alpha = 1.0;
-        card.frame = CGRectMake(16, win.bounds.size.height - 190 - 34, win.bounds.size.width - 32, 190);
-    } completion:nil];
-}
-
-- (void)hideMenu {
-    UIWindow *win = self.view.window;
-    UIView *o = [win viewWithTag:88881];
-    UIView *c = [win viewWithTag:88882];
-    if (o == nil || c == nil) return;
-    [UIView animateWithDuration:0.2 animations:^{
-        o.alpha = 0;
-        c.frame = CGRectMake(16, win.bounds.size.height, win.bounds.size.width - 32, 190);
+        card.transform = CGAffineTransformIdentity;
     } completion:^(BOOL finished) {
-        [o removeFromSuperview];
-        [c removeFromSuperview];
+        card.accessibilityElementsHidden = NO;
+        UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, b1);
     }];
 }
 
+- (void)dismissMenuRestoringFocus:(BOOL)restoreFocus {
+    UIView *overlay = [self.view viewWithTag:88881];
+    UIView *card = [self.view viewWithTag:88882];
+    if (overlay == nil || card == nil) return;
+    card.accessibilityElementsHidden = YES;
+    [UIView animateWithDuration:0.2 animations:^{
+        overlay.alpha = 0;
+        card.transform = CGAffineTransformMakeTranslation(0, CGRectGetHeight(self.view.bounds));
+    } completion:^(BOOL finished) {
+        [overlay removeFromSuperview];
+        [card removeFromSuperview];
+        if (restoreFocus) {
+            UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, self.button);
+        }
+    }];
+}
+
+- (void)hideMenu {
+    [self dismissMenuRestoringFocus:YES];
+}
+
+
 - (void)menuExportPage {
-    [self hideMenu];
+    [self dismissMenuRestoringFocus:NO];
     [self performExportWithMode:TZDebugExportModePage];
 }
 
 - (void)menuExportAll {
-    [self hideMenu];
+    [self dismissMenuRestoringFocus:NO];
     [self performExportWithMode:TZDebugExportModeAllClasses];
 }
 
 #pragma mark - 执行导出
 
 - (void)performExportWithMode:(TZDebugExportMode)mode {
-    UIWindow *target = TZDebugTargetWindow();
-    if (target == nil) { [self showResult:@"找不到当前窗口"]; return; }
-    TZDebugExportContext *context = TZDebugCaptureContext(target, CGPointZero, nil);
+    UIWindow *overlayWindow = self.view.window;
+    if (overlayWindow == nil) { [self showResult:@"找不到调试窗口"]; return; }
+
+    UIWindow *target = nil;
+    UIWindowScene *sourceScene = nil;
+    if (@available(iOS 13.0, *)) sourceScene = overlayWindow.windowScene;
+    if (sourceScene != nil) {
+        // A scene is authoritative: never fall back to a different scene's window.
+        target = TZDebugTargetWindowForScene(sourceScene);
+        if (target == nil) { [self showResult:@"当前场景没有可用的应用窗口"]; return; }
+    } else {
+        // Compatibility path for pre-scene UIKit applications.
+        target = TZDebugTargetWindow();
+        if (target == nil) { [self showResult:@"找不到当前窗口"]; return; }
+    }
+
+    TZDebugExportContext *context = mode == TZDebugExportModeAllClasses
+        ? TZDebugCaptureMetadataOnlyContext(target)
+        : TZDebugCaptureContext(target, CGPointZero, nil);
     if (context == nil) { [self showResult:@"无法创建调试快照"]; return; }
 
     self.exporting = YES;
@@ -342,7 +430,7 @@ NSRegularExpression *re = [NSRegularExpression
                 return;
             }
             NSLog(@"[tzyhb] Export succeeded: %@", result.zipURL.path);
-            [self shareZipAtPath:result.zipURL.path];
+            [self shareZipAtPath:result.zipURL.path exportResult:result];
         });
     });
 }
@@ -419,10 +507,11 @@ NSRegularExpression *re = [NSRegularExpression
 
 #pragma mark - 分享
 
-- (void)shareZipAtPath:(NSString *)zipPath {
+- (void)shareZipAtPath:(NSString *)zipPath exportResult:(TZDebugExportResult *)exportResult {
     NSFileManager *fm = [NSFileManager defaultManager];
     if (![fm fileExistsAtPath:zipPath]) {
-        [self showResult:[NSString stringWithFormat:@"文件不存在：\n%@", zipPath]];
+        TZDebugCleanupExport(exportResult);
+        [self showResult:[NSString stringWithFormat:@"文件不存在，已清理临时导出：\n%@", zipPath]];
         return;
     }
 
@@ -443,6 +532,7 @@ NSRegularExpression *re = [NSRegularExpression
                                             NSArray *returnedItems,
                                             NSError *activityError) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            TZDebugCleanupExport(exportResult);
             if (gWindow != nil && !gWindow.hidden) {
                 [gWindow makeKeyWindow];
             }
@@ -518,21 +608,18 @@ static UIWindowScene *DYDebugForegroundWindowScene(void) {
     return nil;
 }
 
-static void DYShowOverlay(void) {
+static void DYShowOverlayInScene(UIWindowScene *scene) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (gWindow != nil && gWindow.windowScene != nil && !gWindow.hidden) return;
+        if (scene == nil || scene.activationState != UISceneActivationStateForegroundActive) return;
+        if (gWindow != nil && gWindow.windowScene == scene && !gWindow.hidden) return;
 
-        UIWindowScene *scene = DYDebugForegroundWindowScene();
-
-        if (scene == nil) {
-            dispatch_after(
-                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
-                dispatch_get_main_queue(),
-                ^{
-                    DYShowOverlay();
-                }
-            );
-            return;
+        DYDebugOverlayController *oldController =
+            (DYDebugOverlayController *)gWindow.rootViewController;
+        if (oldController.exporting || oldController.presentedViewController != nil) return;
+        if (gWindow != nil) {
+            gWindow.hidden = YES;
+            gWindow.rootViewController = nil;
+            gWindow = nil;
         }
 
         gWindow = [[DYDebugOverlayWindow alloc] initWithWindowScene:scene];
@@ -542,8 +629,12 @@ static void DYShowOverlay(void) {
         gWindow.rootViewController = [DYDebugOverlayController new];
         gWindow.hidden = NO;
 
-        NSLog(@"[tzyhb] Overlay shown");
+        NSLog(@"[tzyhb] Overlay shown in scene %@", scene.session.persistentIdentifier);
     });
+}
+
+static void DYShowOverlay(void) {
+    DYShowOverlayInScene(DYDebugForegroundWindowScene());
 }
 
 #pragma mark - Gesture Delegate
@@ -566,7 +657,10 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 
 + (void)handle:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
-    DYShowOverlay();
+    UIWindow *sourceWindow = [gesture.view isKindOfClass:UIWindow.class]
+        ? (UIWindow *)gesture.view : nil;
+    if (sourceWindow.windowScene != nil) DYShowOverlayInScene(sourceWindow.windowScene);
+    else DYShowOverlay();
 }
 
 @end
@@ -639,20 +733,6 @@ static void DYAttachToCurrentWindows(void) {
 #pragma clang diagnostic pop
         }
     });
-}
-
-#pragma mark - Periodic Scan
-
-static void DYScanWindowsPeriodically(void) {
-    DYAttachToCurrentWindows();
-
-    dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
-        dispatch_get_main_queue(),
-        ^{
-            DYScanWindowsPeriodically();
-        }
-    );
 }
 
 #pragma mark - Constructor

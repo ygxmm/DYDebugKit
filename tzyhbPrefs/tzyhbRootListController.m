@@ -3,6 +3,7 @@
 #import <dlfcn.h>
 #import <fcntl.h>
 #import <unistd.h>
+#import <errno.h>
 #import <mach-o/dyld.h>
 
 // 自己扫描 jbroot 目录，绕过 roothide.h
@@ -42,9 +43,12 @@ static NSString *DYJBPath(NSString *path) {
 - (NSArray *)atl_allInstalledApplications;
 @end
 
-@interface tzyhbRootListController ()
+@interface tzyhbRootListController () <UISearchResultsUpdating>
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *enabledApps;
 @property (nonatomic, strong) NSArray<NSDictionary *> *allApps;
+@property (nonatomic, strong) UISearchController *appSearchController;
+@property (nonatomic, copy) NSString *appSearchText;
+@property (nonatomic, assign) BOOL hasPendingPreferenceChanges;
 @end
 
 @implementation tzyhbRootListController
@@ -83,6 +87,19 @@ static void DYLoadAltListOnce(void) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"tzyhb";
+    self.definesPresentationContext = YES;
+    self.appSearchController = [[UISearchController alloc] initWithSearchResultsController:nil];
+    self.appSearchController.searchResultsUpdater = self;
+    self.appSearchController.obscuresBackgroundDuringPresentation = NO;
+    self.appSearchController.hidesNavigationBarDuringPresentation = NO;
+    self.appSearchController.searchBar.placeholder = @"搜索 App 名称或 Bundle ID";
+    self.appSearchController.searchBar.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.appSearchController.searchBar.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.appSearchController.searchBar.accessibilityLabel = @"搜索已安装的 App";
+    self.appSearchController.searchBar.accessibilityHint = @"输入应用名称或 Bundle ID 过滤列表";
+    self.appSearchController.searchBar.searchTextField.accessibilityLabel = @"搜索已安装的 App";
+    self.appSearchController.searchBar.searchTextField.accessibilityHint = @"输入应用名称或 Bundle ID 过滤列表";
+    self.navigationItem.searchController = self.appSearchController;
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithTitle:@"保存"
                                          style:UIBarButtonItemStyleDone
@@ -95,13 +112,14 @@ static void DYLoadAltListOnce(void) {
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    [self loadPrefs];
+    if (!self.hasPendingPreferenceChanges) [self loadPrefs];
     _specifiers = nil;          // 强制重建
     if (self.allApps.count == 0) [self loadApps];
     [self rebuildSpecifiers];
 }
 
 - (void)loadPrefs {
+    self.hasPendingPreferenceChanges = NO;
     NSString *path = DYJBPath(@"/var/mobile/Library/Preferences/dydebugkit.json");
     int fd = open(path.UTF8String, O_RDONLY);
     if (fd >= 0) {
@@ -121,33 +139,109 @@ static void DYLoadAltListOnce(void) {
 }
 
 - (void)savePrefs {
-    @try {
-        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:self.enabledApps ?: @{} options:0 error:nil];
-        NSString *prefPath = DYJBPath(@"/var/mobile/Library/Preferences/dydebugkit.json");
-        int pfd = open(prefPath.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (pfd >= 0) { write(pfd, jsonData.bytes, jsonData.length); close(pfd); }
-    } @catch (NSException *e) {}
-
-    NSMutableString *xml = [NSMutableString string];
-    [xml appendString:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"];
-    [xml appendString:@"<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"];
-    [xml appendString:@"<plist version=\"1.0\">\n<dict>\n<key>Filter</key>\n<dict>\n<key>Bundles</key>\n<array>\n"];
-    NSUInteger cnt = 0;
-    for (NSString *bid in self.enabledApps) {
-        if ([self.enabledApps[bid] boolValue]) {
-            [xml appendFormat:@"    <string>%@</string>\n", bid];
-            cnt++;
-        }
+    NSError *error = nil;
+    NSDictionary *settings = self.enabledApps ?: @{};
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:settings options:0 error:&error];
+    if (jsonData == nil) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败"
+            message:[NSString stringWithFormat:@"无法序列化应用设置：%@", error.localizedDescription ?: @"未知错误"]
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
     }
-    [xml appendString:@"</array>\n</dict>\n</dict>\n</plist>\n"];
 
-    @try {
-        NSData *xmlData = [xml dataUsingEncoding:NSUTF8StringEncoding];
-        NSString *plistPath = DYJBPath(@"/usr/lib/TweakInject/tzyhb.plist");
-        int fd = open(plistPath.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd >= 0) { write(fd, xmlData.bytes, xmlData.length); close(fd); }
-    } @catch (NSException *e) {}
+    NSMutableArray<NSString *> *bundles = [NSMutableArray array];
+    for (NSString *bid in settings) {
+        if ([settings[bid] boolValue]) [bundles addObject:bid];
+    }
+    NSUInteger cnt = bundles.count;
+    NSDictionary *plist = @{ @"Filter": @{ @"Bundles": bundles } };
+    error = nil;
+    NSData *plistData = [NSPropertyListSerialization dataWithPropertyList:plist
+        format:NSPropertyListXMLFormat_v1_0 options:0 error:&error];
+    if (plistData == nil) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败"
+            message:[NSString stringWithFormat:@"无法生成注入配置：%@", error.localizedDescription ?: @"未知错误"]
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
 
+    NSString *prefPath = DYJBPath(@"/var/mobile/Library/Preferences/dydebugkit.json");
+    BOOL previousJSONExists = NO;
+    NSData *previousJSON = nil;
+    int previousFD = open(prefPath.UTF8String, O_RDONLY);
+    int snapshotErrorCode = 0;
+    if (previousFD >= 0) {
+        previousJSONExists = YES;
+        NSMutableData *snapshot = [NSMutableData data];
+        char buffer[4096];
+        while (YES) {
+            ssize_t bytesRead = read(previousFD, buffer, sizeof(buffer));
+            if (bytesRead > 0) {
+                [snapshot appendBytes:buffer length:(NSUInteger)bytesRead];
+            } else if (bytesRead == 0) {
+                break;
+            } else if (errno != EINTR) {
+                snapshotErrorCode = errno;
+                break;
+            }
+        }
+        close(previousFD);
+        if (snapshotErrorCode == 0) previousJSON = [snapshot copy];
+    } else if (errno != ENOENT) {
+        snapshotErrorCode = errno;
+    }
+    if (snapshotErrorCode != 0) {
+        NSError *snapshotError = [NSError errorWithDomain:NSPOSIXErrorDomain
+            code:snapshotErrorCode userInfo:nil];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败"
+            message:[NSString stringWithFormat:@"无法备份当前设置，未写入新配置（%@）：%@", prefPath, snapshotError.localizedDescription ?: @"未知错误"]
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+    error = nil;
+    if (![jsonData writeToFile:prefPath options:NSDataWritingAtomic error:&error]) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败"
+            message:[NSString stringWithFormat:@"写入应用设置文件失败（%@）：%@", prefPath, error.localizedDescription ?: @"未知错误"]
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    NSString *plistPath = DYJBPath(@"/usr/lib/TweakInject/tzyhb.plist");
+    error = nil;
+    if (![plistData writeToFile:plistPath options:NSDataWritingAtomic error:&error]) {
+        NSError *rollbackError = nil;
+        BOOL rolledBack = NO;
+        if (previousJSONExists) {
+            rolledBack = [previousJSON writeToFile:prefPath options:NSDataWritingAtomic error:&rollbackError];
+        } else {
+            int unlinkResult = unlink(prefPath.UTF8String);
+            if (unlinkResult == 0 || errno == ENOENT) {
+                rolledBack = YES;
+            } else {
+                rollbackError = [NSError errorWithDomain:NSPOSIXErrorDomain
+                    code:errno userInfo:nil];
+            }
+        }
+        NSString *rollbackMessage = rolledBack
+            ? @"应用设置 JSON 已恢复为保存前状态。"
+            : [NSString stringWithFormat:@"JSON 回滚也失败（%@）；请检查设置文件。", rollbackError.localizedDescription ?: @"未知错误"];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存失败"
+            message:[NSString stringWithFormat:@"写入注入配置失败（%@）：%@\n%@", plistPath, error.localizedDescription ?: @"未知错误", rollbackMessage]
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+
+    self.hasPendingPreferenceChanges = NO;
     notify_post("com.tzyhb.tzyhb/reload");
 
     UIAlertController *alert =
@@ -211,8 +305,28 @@ static void DYLoadAltListOnce(void) {
     }];
 }
 
+- (void)updateSearchResultsForSearchController:(UISearchController *)searchController {
+    NSString *query = searchController.searchBar.text ?: @"";
+    if ([self.appSearchText isEqualToString:query]) return;
+    self.appSearchText = query;
+    [self rebuildSpecifiers];
+}
+
 - (void)rebuildSpecifiers {
     NSMutableArray *specs = [NSMutableArray array];
+    NSString *query = [self.appSearchText stringByTrimmingCharactersInSet:
+                       [NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+    BOOL isSearching = query.length > 0;
+    NSArray<NSDictionary *> *appsToDisplay = self.allApps ?: @[];
+    if (isSearching) {
+        NSPredicate *match = [NSPredicate predicateWithBlock:^BOOL(NSDictionary *app, NSDictionary *bindings) {
+            NSString *name = app[@"name"] ?: @"";
+            NSString *bundleID = app[@"bundleID"] ?: @"";
+            return [name rangeOfString:query options:NSCaseInsensitiveSearch].location != NSNotFound ||
+                   [bundleID rangeOfString:query options:NSCaseInsensitiveSearch].location != NSNotFound;
+        }];
+        appsToDisplay = [appsToDisplay filteredArrayUsingPredicate:match];
+    }
 
     NSUInteger enabledCount = 0;
     for (NSString *bid in self.enabledApps) {
@@ -224,23 +338,29 @@ static void DYLoadAltListOnce(void) {
     [specs addObject:header];
 
     UILocalizedIndexedCollation *collation = [UILocalizedIndexedCollation currentCollation];
-    NSInteger sectionCount = [collation sectionIndexTitles].count;
+    NSArray *titles = [collation sectionIndexTitles];
+    NSInteger sectionCount = isSearching ? 1 : (NSInteger)titles.count;
     NSMutableArray<NSMutableArray *> *sections = [NSMutableArray array];
     for (NSInteger i = 0; i < sectionCount; i++) [sections addObject:[NSMutableArray array]];
-    for (NSDictionary *app in self.allApps) {
-        NSString *name = app[@"name"] ?: @"?";
-        NSInteger idx = [collation sectionForObject:@[name, app] collationStringSelector:@selector(firstObject)];
-        if (idx < 0 || idx >= sectionCount) idx = sectionCount - 1;
-        [sections[idx] addObject:app];
+    if (isSearching) {
+        [sections[0] addObjectsFromArray:appsToDisplay];
+    } else {
+        for (NSDictionary *app in appsToDisplay) {
+            NSString *name = app[@"name"] ?: @"?";
+            NSInteger idx = [collation sectionForObject:@[name, app] collationStringSelector:@selector(firstObject)];
+            if (idx < 0 || idx >= sectionCount) idx = sectionCount - 1;
+            [sections[idx] addObject:app];
+        }
     }
 
-    NSArray *titles = [collation sectionIndexTitles];
     for (NSInteger si = 0; si < sectionCount; si++) {
         NSMutableArray *appsInSection = sections[si];
-        if (appsInSection.count == 0) continue;
+        if (appsInSection.count == 0 && !isSearching) continue;
 
         PSSpecifier *group = [PSSpecifier emptyGroupSpecifier];
-        group.name = titles[si];
+        group.name = isSearching
+            ? (appsInSection.count ? [NSString stringWithFormat:@"搜索结果（%lu）", (unsigned long)appsInSection.count] : @"没有匹配的 App")
+            : titles[si];
         [specs addObject:group];
 
         for (NSDictionary *app in appsInSection) {
@@ -276,6 +396,7 @@ static void DYLoadAltListOnce(void) {
     NSString *bid = [spec propertyForKey:@"bundleID"];
     if (!bid) return;
     self.enabledApps[bid] = @([value boolValue]);
+    self.hasPendingPreferenceChanges = YES;
 }
 
 @end

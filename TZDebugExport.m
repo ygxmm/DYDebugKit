@@ -16,11 +16,10 @@
 
 #import "TZDebugExport.h"
 #import "TZDebugCapture.h"
-#import <mach-o/dyld.h>
-#import "TZStaticClassDump.h"
 #import "TZAudioProbe.h"
 #import "TZClassDump.h"
 #import "TZZipWriter.h"
+#import <dispatch/dispatch.h>
 
 NSString *const TZDebugExportWorkingDirectoryKey = @"TZDebugExportWorkingDirectory";
 
@@ -40,6 +39,7 @@ static const NSUInteger kDKMaxExportFiles = 500000;
 @interface DKExportSink : NSObject
 @property (nonatomic, copy) NSString *rootDir;
 @property (nonatomic, strong) NSMutableArray<NSString *> *files;
+@property (nonatomic, strong) NSMutableSet<NSString *> *writtenPaths;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *errors;
 @property (nonatomic, assign) BOOL criticalFailed;
 @property (nonatomic, assign) NSUInteger droppedFiles;
@@ -51,6 +51,7 @@ static const NSUInteger kDKMaxExportFiles = 500000;
     if ((self = [super init])) {
         _rootDir = [rootDir copy];
         _files = [NSMutableArray array];
+        _writtenPaths = [NSMutableSet set];
         _errors = [NSMutableArray array];
     }
     return self;
@@ -71,7 +72,7 @@ static NSString *DKSafeFileName(NSString *name) {
     if (!name.length) return @"Unknown";
     NSCharacterSet *bad = [NSCharacterSet characterSetWithCharactersInString:@"/\\?%*|\"<>:"];
     NSString *safe = [[name componentsSeparatedByCharactersInSet:bad] componentsJoinedByString:@"_"];
-    if (!safe.length) return @"Unknown";
+    if (!safe.length || [safe isEqualToString:@"."] || [safe isEqualToString:@".."]) return @"Unknown";
     // DK_FILENAME_LEN: APFS 单文件名 255 字节上限，超长时截断 + hash 后缀
     if (safe.length > 200) {
         NSUInteger h = (NSUInteger)safe.hash;
@@ -81,38 +82,75 @@ static NSString *DKSafeFileName(NSString *name) {
     return safe;
 }
 
-static NSString *DKImageNameForClass(Class cls) {
-    if (!cls) return @"Unknown";
-    const char *img = class_getImageName(cls);
-    if (!img) return @"Unknown";
-    NSString *path = [NSString stringWithUTF8String:img];
-    if (!path.length) return @"Unknown";
-    // App-only filter: skip system frameworks/dylibs
-    BOOL isAppImage = [path containsString:@"/containers/Bundle/Application/"]
-                   || [path containsString:@"/.jbroot-"]
-                   || [path containsString:@"/TweakInject/"];
-    if (!isAppImage) return @"";   // system image -> empty -> caller skips
-    NSString *last = path.lastPathComponent;
-    if ([last hasSuffix:@".dylib"]) last = [last stringByDeletingPathExtension];
-    if (last.length == 0) return @"Unknown";
-    return DKSafeFileName(last);
+// This is deliberately a conservative collision key, not a claim about exact
+// filesystem equivalence: case/diacritic folding can merge distinct names.
+// NFC before and after folding also collapses canonically equivalent spellings.
+// Keep the original path for output; this key is only used by writtenPaths.
+static NSLocale *DKPathCollisionLocale(void) {
+    static NSLocale *locale;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    });
+    return locale;
 }
 
-static NSString *DKUniqueFileStem(NSString *name) {
-    NSString *safe = DKSafeFileName(name);
-    if (safe.length > 160) {
-        NSRange range = [safe rangeOfComposedCharacterSequencesForRange:NSMakeRange(0, 160)];
-        safe = [safe substringWithRange:range];
-    }
-    NSData *utf8 = [(name ?: @"") dataUsingEncoding:NSUTF8StringEncoding] ?: NSData.data;
-    uint64_t hash = 1469598103934665603ULL;
-    const uint8_t *bytes = utf8.bytes;
-    for (NSUInteger i = 0; i < utf8.length; i++) {
-        hash ^= bytes[i];
-        hash *= 1099511628211ULL;
-    }
-    return [NSString stringWithFormat:@"%@-%08llx", safe, (unsigned long long)(hash & 0xffffffffULL)];
+static NSString *DKPathCollisionKey(NSString *path) {
+    NSString *nfcPath = [(path ?: @"") precomposedStringWithCanonicalMapping];
+    NSString *foldedPath = [nfcPath stringByFoldingWithOptions:(NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch)
+                                                        locale:DKPathCollisionLocale()];
+    return foldedPath.precomposedStringWithCanonicalMapping;
 }
+
+// Shared by production collision resolution and the source-level vectors below.
+static NSString *DKPathByAddingCollisionSuffix(NSString *relativePath, NSUInteger duplicateIndex) {
+    NSString *directoryPart = relativePath.stringByDeletingLastPathComponent;
+    if ([directoryPart isEqualToString:@"."]) directoryPart = @"";
+    NSString *fileName = relativePath.lastPathComponent;
+    NSString *extension = fileName.pathExtension;
+    NSString *stem = extension.length ? fileName.stringByDeletingPathExtension : fileName;
+    NSString *uniqueName = extension.length
+        ? [NSString stringWithFormat:@"%@-%lu.%@", stem, (unsigned long)duplicateIndex, extension]
+        : [NSString stringWithFormat:@"%@-%lu", stem, (unsigned long)duplicateIndex];
+    return directoryPart.length
+        ? [directoryPart stringByAppendingPathComponent:uniqueName]
+        : uniqueName;
+}
+
+#if DEBUG
+// Static vectors run once on the first write in debug builds. They exercise
+// case, canonical Unicode forms, diacritic over-folding, sanitization, and
+// multiple suffix collisions without touching the filesystem.
+static void DKAssertPathCollisionVectors(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSArray<NSArray<NSString *> *> *equivalentVectors = @[
+            @[@"Foo.h", @"foo.h"],
+            @[@"caf\u00e9.h", @"cafe\u0301.h"],
+            @[@"resume.txt", @"r\u00e9sum\u00e9.txt"],
+            @[[NSString stringWithFormat:@"exports/%@.h", DKSafeFileName(@"A/B")],
+              [NSString stringWithFormat:@"exports/%@.h", DKSafeFileName(@"A\\B")]],
+        ];
+        for (NSArray<NSString *> *vector in equivalentVectors) {
+            NSCAssert([DKPathCollisionKey(vector[0]) isEqualToString:DKPathCollisionKey(vector[1])],
+                      @"path collision key vector failed: %@", vector);
+        }
+
+        NSMutableSet<NSString *> *occupiedKeys = [NSMutableSet set];
+        for (NSString *path in @[@"data/REPORT.TXT", @"data/report-2.txt", @"data/Report-3.txt"]) {
+            [occupiedKeys addObject:DKPathCollisionKey(path)];
+        }
+        NSString *candidate = @"data/report.txt";
+        NSString *basePath = candidate;
+        NSUInteger duplicateIndex = 2;
+        while ([occupiedKeys containsObject:DKPathCollisionKey(candidate)]) {
+            candidate = DKPathByAddingCollisionSuffix(basePath, duplicateIndex++);
+        }
+        NSCAssert([candidate isEqualToString:@"data/report-4.txt"],
+                  @"multiple suffix collision vector failed: %@", candidate);
+    });
+}
+#endif
 
 static void DKRecordError(DKExportSink *sink,
                           NSString *relativePath,
@@ -135,20 +173,46 @@ static BOOL DKWriteData(DKExportSink *sink, NSString *relativePath, NSData *data
         return NO;
     }
 
-    NSString *path = [sink.rootDir stringByAppendingPathComponent:relativePath];
+    NSString *root = sink.rootDir.stringByStandardizingPath;
+    NSString *rootPrefix = [root hasSuffix:@"/"] ? root : [root stringByAppendingString:@"/"];
+    NSString *resolvedRelativePath = [relativePath copy] ?: @"";
+    NSString *path = [[root stringByAppendingPathComponent:resolvedRelativePath] stringByStandardizingPath];
     NSError *writeError = nil;
+    // Class/probe names can come from loaded code. Keep every generated file
+    // lexically inside the fresh export root; never let a name escape via ../.
+    if (resolvedRelativePath.length == 0 || resolvedRelativePath.isAbsolutePath ||
+        ![path hasPrefix:rootPrefix] || [path isEqualToString:root]) {
+        writeError = DKMakeExportError(12, @"导出路径无效或越界", nil);
+    }
+
+    // Sanitization can map distinct class/probe names to the same filename.
+    // Preserve both outputs by adding a stable, readable suffix before extension.
+#if DEBUG
+    DKAssertPathCollisionVectors();
+#endif
+    NSUInteger duplicateIndex = 2;
+    NSString *baseRelativePath = resolvedRelativePath;
+    while (writeError == nil && [sink.writtenPaths containsObject:DKPathCollisionKey(path)]) {
+        resolvedRelativePath = DKPathByAddingCollisionSuffix(baseRelativePath, duplicateIndex++);
+        path = [[root stringByAppendingPathComponent:resolvedRelativePath] stringByStandardizingPath];
+        if (![path hasPrefix:rootPrefix] || [path isEqualToString:root]) {
+            writeError = DKMakeExportError(12, @"导出路径无效或越界", nil);
+        }
+    }
+
     NSString *directory = path.stringByDeletingLastPathComponent;
-    BOOL ok = data && [NSFileManager.defaultManager createDirectoryAtPath:directory
-                                              withIntermediateDirectories:YES
-                                                               attributes:nil
-                                                                    error:&writeError];
+    BOOL ok = (writeError == nil) && data && [NSFileManager.defaultManager createDirectoryAtPath:directory
+                                                                     withIntermediateDirectories:YES
+                                                                                      attributes:nil
+                                                                                           error:&writeError];
     if (ok) ok = [data writeToFile:path options:NSDataWritingAtomic error:&writeError];
     if (ok) {
         [sink.files addObject:path];
+        [sink.writtenPaths addObject:DKPathCollisionKey(path)];
         return YES;
     }
     if (!writeError) writeError = DKMakeExportError(10, @"没有可写入的数据", nil);
-    DKRecordError(sink, relativePath, @"write", writeError, critical);
+    DKRecordError(sink, resolvedRelativePath, @"write", writeError, critical);
     if (critical) sink.criticalFailed = YES;
     return NO;
 }
@@ -194,30 +258,36 @@ static NSString *DKReadme(TZDebugExportContext *context, TZDebugExportMode mode)
     [text appendString:@"[manifest.json]\n"];
     [text appendString:@"- 采集元数据。包含 App 版本、系统版本、屏幕尺寸、目标窗口信息。\n\n"];
 
-    [text appendString:@"[page/] UI 主线程快照与本页类\n"];
-    [text appendString:@"- view-tree.txt       视图树文本，带层级缩进，含 Class、frame、hidden、alpha。\n"];
-    [text appendString:@"- view-tree.json      同上，但为 JSON 格式，适合程序解析。\n"];
-    [text appendString:@"- view-controllers.txt VC 树（含 nav.top / tab.selected）。\n"];
-    [text appendString:@"- interactives.txt    可点击元素（UIControl / 手势），含 Target-Action。\n"];
-    [text appendString:@"- texts.txt           页面上的所有文字（UILabel/YYLabel/Button title 等）。\n"];
-    [text appendString:@"- images.txt          所有 UIImageView，含尺寸、帧数、scale。\n"];
-    [text appendString:@"- responders.txt      可交互元素的响应链（view -> VC -> window）。\n"];
-    [text appendString:@"- classes/*.h         运行时 dump 的 Objective-C 头文件。\n"];
-    [text appendString:@"  * 注：仅 dump 了当前页面链路出现过的类。\n"];
-    [text appendString:@"  * 注：方法参数类型多为 id（Runtime 限制），属性名和类名可信。\n\n"];
+    if (mode == TZDebugExportModeAllClasses) {
+        [text appendString:@"[classes/] 运行时类头文件\n"];
+        [text appendString:@"- 按加载镜像分组，包含本次全量类导出生成的头文件。\n"];
+        [text appendString:@"- 本模式不生成页面树、交互探针或截图。\n\n"];
+    } else {
+        [text appendString:@"[page/] UI 主线程快照与本页类\n"];
+        [text appendString:@"- view-tree.txt       视图树文本，带层级缩进，含 Class、frame、hidden、alpha。\n"];
+        [text appendString:@"- view-tree.json      同上，但为 JSON 格式，适合程序解析。\n"];
+        [text appendString:@"- view-controllers.txt VC 树（含 nav.top / tab.selected）。\n"];
+        [text appendString:@"- interactives.txt    可点击元素（UIControl / 手势），含 Target-Action。\n"];
+        [text appendString:@"- texts.txt           页面上的非编辑文字（可编辑输入值为保护隐私而省略）。\n"];
+        [text appendString:@"- images.txt          所有 UIImageView，含尺寸、帧数、scale。\n"];
+        [text appendString:@"- responders.txt      可交互元素的响应链（view -> VC -> window）。\n"];
+        [text appendString:@"- classes/*.h         运行时 dump 的 Objective-C 头文件。\n"];
+        [text appendString:@"  * 注：仅 dump 了当前页面链路出现过的类。\n"];
+        [text appendString:@"  * 注：方法参数类型多为 id（Runtime 限制），属性名和类名可信。\n\n"];
 
-    [text appendString:@"[probe/] 专项探针数据\n"];
-    [text appendString:@"- tabbar.txt          底栏（TabBar）现场。\n"];
-    [text appendString:@"  * === Summary === 段：包含可见/隐藏数量、坐标是否重叠 (visible_overlaps)、总宽。\n"];
-    [text appendString:@"  * === TabBar === 段：具体视图层级、按钮名称 (label)、frame。\n\n"];
+        [text appendString:@"[probe/] 专项探针数据\n"];
+        [text appendString:@"- tabbar.txt          底栏（TabBar）现场。\n"];
+        [text appendString:@"  * === Summary === 段：包含可见/隐藏数量、坐标是否重叠 (visible_overlaps)、总宽。\n"];
+        [text appendString:@"  * === TabBar === 段：具体视图层级、按钮名称 (label)、frame。\n\n"];
 
-    [text appendString:@"[ui/] 视觉辅助\n"];
-    [text appendString:@"- screenshot.png      目标窗口的截图（按 windowLevel 从低到高合成）。\n\n"];
+        [text appendString:@"[ui/] 视觉辅助\n"];
+        [text appendString:@"- screenshot.png      目标场景截图；可编辑输入区域会遮蔽。\n\n"];
 
-    [text appendString:@"[常见排查场景]\n"];
-    [text appendString:@"- 按钮不见了：看 view-tree.txt 或 tabbar.txt 里的 hidden 字段。\n"];
-    [text appendString:@"- 按钮点不动：看 interactives.txt 里的 targets 列。\n"];
-    [text appendString:@"- 布局错乱：看 tabbar.txt 的 Summary，检查 visible_overlaps 和 frame 值。\n"];
+        [text appendString:@"[常见排查场景]\n"];
+        [text appendString:@"- 按钮不见了：看 view-tree.txt 或 tabbar.txt 里的 hidden 字段。\n"];
+        [text appendString:@"- 按钮点不动：看 interactives.txt 里的 targets 列。\n"];
+        [text appendString:@"- 布局错乱：看 tabbar.txt 的 Summary，检查 visible_overlaps 和 frame 值。\n"];
+    }
 
     return text;
 }
@@ -349,7 +419,8 @@ static void DKWriteAllClasses(DKExportSink *sink, void (^progress)(NSString *tex
                     NSString *header = TZClassDumpHeaderForClass(cls);
                     if (header.length > 0) {
                         // 标准的：page/classes/ImageName/ClassName.h
-                        NSString *relative = [NSString stringWithFormat:@"page/classes/%@/%@.h", safeImageName, className];
+                        NSString *safeClassName = DKSafeFileName(className);
+                        NSString *relative = [NSString stringWithFormat:@"page/classes/%@/%@.h", safeImageName, safeClassName];
                         DKWriteString(sink, relative, header, NO);
                     }
                 } @catch (NSException *e) {
@@ -407,12 +478,21 @@ TZDebugExportResult *TZDebugCreateExport(TZDebugExportContext *context,
     NSString *bid = NSBundle.mainBundle.bundleIdentifier ?: @"Unknown";
     NSString *appName = NSBundle.mainBundle.infoDictionary[@"CFBundleDisplayName"] ?: NSBundle.mainBundle.infoDictionary[@"CFBundleName"] ?: @"UnknownApp";
     NSString *rootName = [NSString stringWithFormat:@"tz-%@-Debug-%@%@-%lld",
-                          appName,
+                          DKSafeFileName(appName),
                           DKModeName(mode), suffix,
                           (long long)NSDate.date.timeIntervalSince1970];
     NSString *cacheRoot = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject];
     if (cacheRoot.length == 0) cacheRoot = NSTemporaryDirectory();
-    NSString *appDir = [[cacheRoot stringByAppendingPathComponent:@"tz"] stringByAppendingPathComponent:DKSafeFileName(bid)];
+    NSString *appDir = [[[cacheRoot stringByAppendingPathComponent:@"tz"] stringByAppendingPathComponent:DKSafeFileName(bid)] stringByStandardizingPath];
+    NSString *rootDir = [[appDir stringByAppendingPathComponent:rootName] stringByStandardizingPath];
+    NSString *zipPath = [[appDir stringByAppendingPathComponent:[rootName stringByAppendingString:@".zip"]] stringByStandardizingPath];
+    NSString *appPrefix = [appDir hasSuffix:@"/"] ? appDir : [appDir stringByAppendingString:@"/"];
+    if (![rootDir hasPrefix:appPrefix] || [rootDir isEqualToString:appDir] ||
+        ![rootDir.stringByDeletingLastPathComponent isEqualToString:appDir] ||
+        ![zipPath hasPrefix:appPrefix] || ![zipPath.stringByDeletingLastPathComponent isEqualToString:appDir]) {
+        if (error) *error = DKMakeExportError(13, @"导出目录名无效或越界", nil);
+        return nil;
+    }
     NSFileManager *fm = NSFileManager.defaultManager;
     [fm createDirectoryAtPath:appDir withIntermediateDirectories:YES attributes:nil error:nil];
 
@@ -431,8 +511,6 @@ TZDebugExportResult *TZDebugCreateExport(TZDebugExportContext *context,
         [fm removeItemAtPath:oldDirs[i] error:nil];
     }
 
-    NSString *rootDir = [appDir stringByAppendingPathComponent:rootName];
-    NSString *zipPath = [appDir stringByAppendingPathComponent:[rootName stringByAppendingString:@".zip"]];
     [fm removeItemAtPath:rootDir error:nil];
     [fm removeItemAtPath:zipPath error:nil];
 
@@ -445,7 +523,7 @@ TZDebugExportResult *TZDebugCreateExport(TZDebugExportContext *context,
     DKExportSink *sink = [[DKExportSink alloc] initWithRootDir:rootDir];
     DKWriteString(sink, @"README.txt", DKReadme(context, mode), mode == TZDebugExportModeAudio);
     if (mode != TZDebugExportModeAllClasses) { DKWriteData(sink, @"ui/screenshot.png", context.screenshotPNG, NO); }
-    {
+    if (mode != TZDebugExportModeAllClasses) {
         NSDictionary<NSString *, NSString *> *probes = context.probes;
         if (probes.count == 0 && context.probeText.length) {
             probes = @{@"tabbar": context.probeText};
@@ -454,7 +532,8 @@ TZDebugExportResult *TZDebugCreateExport(TZDebugExportContext *context,
             DKWriteString(sink, @"probe/README.txt", @"no probes ran; check TZRegisterBuiltinProbes()\n", NO);
         } else {
             for (NSString *name in probes) {
-                NSString *path = [NSString stringWithFormat:@"probe/%@.txt", name];
+                NSString *safeProbeName = DKSafeFileName([name description]);
+                NSString *path = [NSString stringWithFormat:@"probe/%@.txt", safeProbeName];
                 DKWriteString(sink, path, probes[name], NO);
             }
         }
